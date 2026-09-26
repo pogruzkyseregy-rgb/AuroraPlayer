@@ -2,6 +2,8 @@ package ru.avrora.player
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.RecoverableSecurityException
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.pm.PackageManager
@@ -24,7 +26,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -63,6 +67,8 @@ class MainActivity : ComponentActivity() {
     private val lib = LinkedHashMap<String, Track>()      // с твоими правками
     private val customArt = ConcurrentHashMap<String, String>()
     private var pickTarget: Pair<String, String>? = null  // ("t", id) или ("a", albumId)
+    private val hidden = mutableSetOf<String>()           // скрытые из медиатеки
+    private var pendingDelete: String? = null             // трек, который удаляем
     private val playlists = mutableListOf<Playlist>()
     private var queueSource = ""
     private var scanning = false
@@ -74,6 +80,17 @@ class MainActivity : ComponentActivity() {
 
     private val permLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) scan() else pushLibrary()
+        askNotificationsOnce()
+    }
+
+    /** Один раз спрашиваем разрешение на уведомление с кнопками плеера (Android 13+). */
+    private fun askNotificationsOnce() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val p = Library.prefs(this)
+        if (p.getBoolean("notifAsked", false)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        p.edit().putBoolean("notifAsked", true).apply()
+        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -81,6 +98,29 @@ class MainActivity : ComponentActivity() {
         pickTarget = null
         if (uri != null && target != null) saveCover(target.first, target.second, uri)
     }
+
+    // Системное окно «Разрешить удаление?» (Android 10+)
+    private val deleteLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+            val id = pendingDelete ?: return@registerForActivityResult
+            pendingDelete = null
+            if (r.resultCode != Activity.RESULT_OK) { js("fromAndroid.deleted(false)"); return@registerForActivityResult }
+            if (Build.VERSION.SDK_INT == 29) {
+                // на Android 10 после разрешения удаляем сами
+                val t = raw.firstOrNull { it.id == id }
+                val ok = t != null && try { contentResolver.delete(Uri.parse(t.uri), null, null) > 0 } catch (e: Exception) { false }
+                if (!ok) { js("fromAndroid.deleted(false)"); return@registerForActivityResult }
+            }
+            afterDeleted(id)
+        }
+
+    // Разрешение на запись для Android 8–9
+    private val writePermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val id = pendingDelete
+        if (ok && id != null) deleteDirect(id) else { pendingDelete = null; js("fromAndroid.deleted(false)") }
+    }
+
+    private val notifPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val ticker = object : Runnable {
         override fun run() { pushState(); main.postDelayed(this, 500) }
@@ -94,6 +134,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         playlists.addAll(Library.loadPlaylists(this))
         queueSource = Library.loadSource(this)
+        hidden.addAll(Library.loadHidden(this))
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -123,7 +164,7 @@ class MainActivity : ComponentActivity() {
             }
         })
 
-        if (hasPerm()) scan()
+        if (hasPerm()) { scan(); askNotificationsOnce() }
     }
 
     override fun onStart() {
@@ -176,7 +217,8 @@ class MainActivity : ComponentActivity() {
                 rebuildLib()
                 // удалённые с телефона треки убираем из плейлистов
                 if (found.isNotEmpty()) {
-                    playlists.forEach { p -> p.ids.retainAll(lib.keys) }
+                    val all = found.map { it.id }.toHashSet()
+                    playlists.forEach { p -> p.ids.retainAll(all) }
                     Library.savePlaylists(this, playlists)
                 }
                 pushLibrary()
@@ -218,6 +260,7 @@ class MainActivity : ComponentActivity() {
         lib.clear()
         customArt.clear()
         raw.forEach { r ->
+            if (r.id in hidden) return@forEach
             val t = Custom.apply(this, r)
             lib[t.id] = t
             t.art?.let { customArt[t.id] = it }
@@ -275,6 +318,82 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
+    // ---------- скрыть и удалить ----------
+
+    private fun hideTrack(id: String) {
+        hidden.add(id)
+        Library.saveHidden(this, hidden)
+        rebuildLib()
+        pushLibrary()
+        pushPlaylists()
+    }
+
+    private fun unhideAll() {
+        hidden.clear()
+        Library.saveHidden(this, hidden)
+        rebuildLib()
+        pushLibrary()
+        pushPlaylists()
+    }
+
+    /** Удаление файла с телефона. На Android 10+ система сама спросит подтверждение. */
+    private fun deleteTrack(id: String) {
+        val t = raw.firstOrNull { it.id == id } ?: return
+        val uri = Uri.parse(t.uri)
+        pendingDelete = id
+        try {
+            when {
+                Build.VERSION.SDK_INT >= 30 -> {
+                    val pi = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+                    deleteLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                }
+                Build.VERSION.SDK_INT == 29 -> deleteQ(id, uri)
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED -> deleteDirect(id)
+                else -> writePermLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        } catch (e: Exception) {
+            pendingDelete = null
+            js("fromAndroid.deleted(false)")
+        }
+    }
+
+    @RequiresApi(29)
+    private fun deleteQ(id: String, uri: Uri) {
+        try {
+            contentResolver.delete(uri, null, null)
+            pendingDelete = null
+            afterDeleted(id)
+        } catch (e: RecoverableSecurityException) {
+            deleteLauncher.launch(IntentSenderRequest.Builder(e.userAction.actionIntent.intentSender).build())
+        }
+    }
+
+    private fun deleteDirect(id: String) {
+        pendingDelete = null
+        val t = raw.firstOrNull { it.id == id } ?: return
+        val ok = try { contentResolver.delete(Uri.parse(t.uri), null, null) > 0 } catch (e: Exception) { false }
+        if (ok) afterDeleted(id) else js("fromAndroid.deleted(false)")
+    }
+
+    /** Файл удалён: убираем трек из очереди, плейлистов, статистики и правок. */
+    private fun afterDeleted(id: String) {
+        PlaybackService.instance?.exo?.let { exo ->
+            for (i in exo.mediaItemCount - 1 downTo 0) if (exo.getMediaItemAt(i).mediaId == id) exo.removeMediaItem(i)
+        }
+        raw.removeAll { it.id == id }
+        playlists.forEach { it.ids.remove(id) }
+        Library.savePlaylists(this, playlists)
+        Custom.reset(this, "t", id)
+        Stats.forget(this, id)
+        if (hidden.remove(id)) Library.saveHidden(this, hidden)
+        rebuildLib()
+        pushLibrary()
+        pushPlaylists()
+        pushState()
+        js("fromAndroid.deleted(true)")
+    }
+
     // ---------- очередь ----------
 
     private fun playQueue(idsJson: String, index: Int, source: String) {
@@ -320,7 +439,7 @@ class MainActivity : ComponentActivity() {
                     .put("tc", Custom.has(this, "t", t.id)).put("ac", Custom.has(this, "a", t.albumId.toString()))
             )
         }
-        js("fromAndroid.library($a, ${hasPerm()}, $scanning)")
+        js("fromAndroid.library($a, ${hasPerm()}, $scanning, ${hidden.size})")
     }
 
     private fun pushPlaylists() {
@@ -511,6 +630,11 @@ class MainActivity : ComponentActivity() {
                 afterEdit(if (kind == "t") listOf(key) else albumTracks(key))
             }
         }
+
+        // скрыть и удалить
+        @JavascriptInterface fun hideTrack(id: String) { main.post { this@MainActivity.hideTrack(id) } }
+        @JavascriptInterface fun unhideAll() { main.post { this@MainActivity.unhideAll() } }
+        @JavascriptInterface fun deleteTrack(id: String) { main.post { this@MainActivity.deleteTrack(id) } }
 
         // рекомендации
         @JavascriptInterface fun stats(): String = Stats.json(this@MainActivity)

@@ -149,6 +149,14 @@ object Library {
         }
     }
 
+    // ---------- скрытые треки ----------
+
+    fun loadHidden(ctx: Context): MutableSet<String> =
+        prefs(ctx).getStringSet("hidden", emptySet())!!.toMutableSet()
+
+    fun saveHidden(ctx: Context, set: Set<String>) =
+        prefs(ctx).edit().putStringSet("hidden", HashSet(set)).apply()
+
     fun loadSource(ctx: Context): String = prefs(ctx).getString("qSource", "") ?: ""
     fun saveSource(ctx: Context, s: String) = prefs(ctx).edit().putString("qSource", s).apply()
 }
@@ -253,4 +261,10 @@ object Stats {
     }
 
     @Synchronized fun json(ctx: Context): String = get(ctx).toString()
+
+    @Synchronized fun forget(ctx: Context, id: String) {
+        val all = get(ctx)
+        all.remove(id)
+        Library.prefs(ctx).edit().putString("stats", all.toString()).apply()
+    }
 }

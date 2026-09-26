@@ -160,6 +160,9 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 .opt{text-align:left; padding:14px 16px; border-radius:14px; background:var(--row); font-weight:600}
 .opt .muted{margin:0; font-weight:400}
 .opt.accent{color:var(--fox)}
+.opt.danger{color:var(--rose)}
+.linkrow{display:block; width:100%; margin-top:12px; padding:12px; text-align:center; color:var(--muted); font-size:14px}
+.linkrow u{color:var(--fox); text-underline-offset:3px}
 .band{display:grid; grid-template-columns:62px 1fr 54px; align-items:center; gap:10px; margin-bottom:4px; font-size:13px; color:var(--muted)}
 .band .v{text-align:right; font-variant-numeric:tabular-nums}
 
@@ -303,7 +306,11 @@ const lines={
   coverOk:"Готово, новая обложка на месте.",
   coverFail:"Не получилось открыть эту картинку.",
   renamed:"Переименовала. Файл на телефоне остался прежним.",
-  reset:"Вернула как было."
+  reset:"Вернула как было.",
+  hid:"Спрятала. Файл остался на телефоне, вернуть можно внизу списка.",
+  unhid:"Вернула все скрытые треки.",
+  deleted:"Удалила. Больше мы его не услышим.",
+  delFail:"Не удалила. Может, ты передумал?"
 };
 /* ===== Имя в подписи внизу ===== */
 const USER_NAME="Adonis";
@@ -329,15 +336,15 @@ const artUrl=id=>{ const t=libMap[id]; return HOST+'/art/'+encodeURIComponent(id
 const DOTS='<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
 
 /* ===== Данные от Android ===== */
-let lib=[], libMap={}, pls=[], perm=null, scanning=false, libLoaded=false, recSecs={};
+let lib=[], libMap={}, pls=[], perm=null, scanning=false, libLoaded=false, recSecs={}, hiddenN=0;
 let st={playing:false,moving:false,ended:false,currentId:'',title:'',artist:'',pos:0,dur:0,shuffle:false,repeat:'off',source:'',sleep:0};
 let stAt=performance.now(), seeking=false, shownId=null;
 let tab='lib', openPl=null, query='';
 const curPos=()=>Math.min(st.dur||0, st.pos+(st.moving?performance.now()-stAt:0));
 
 window.fromAndroid={
-  library(list,granted,isScanning){
-    const wasScanning=scanning;
+  library(list,granted,isScanning,hidden){
+    const wasScanning=scanning; hiddenN=hidden||0;
     lib=list; libMap={}; list.forEach(t=>libMap[t.id]=t); perm=granted; scanning=isScanning;
     $('libN').textContent=list.length?list.length:'';
     if(!granted) speak(lines.perm);
@@ -349,6 +356,7 @@ window.fromAndroid={
   },
   playlists(list){ pls=list; if(tab==='lists') renderList(); },
   saved(kind){ speak(kind==='fail'?lines.coverFail:lines.coverOk); },
+  deleted(ok){ speak(ok?lines.deleted:lines.delFail); },
   state(s){
     const was=st; st=s; stAt=performance.now();
     if(was.sleep&&!s.sleep&&was.playing&&!s.playing) speak(lines.sleepDone);
@@ -408,10 +416,11 @@ function row(t,i,mode,sec,sub){
 function libHtml(){
   if(perm===null) return '';
   if(perm===false) return card(lines.perm+'<br><button class="btn" id="askPerm">Разрешить доступ</button>');
-  if(!lib.length) return card(scanning?lines.searching:'Музыки на телефоне не нашлось. Скачай что-нибудь и нажми ⟳ рядом с поиском.');
+  if(!lib.length&&!hiddenN) return card(scanning?lines.searching:'Музыки на телефоне не нашлось. Скачай что-нибудь и нажми ⟳ рядом с поиском.');
   const v=visible();
-  if(!v.length) return card('Ничего не нашлось по запросу «'+esc(query)+'».');
-  return '<ol>'+v.map((t,i)=>row(t,i,'lib')).join('')+'</ol>';
+  const foot=hiddenN&&!query?'<button class="linkrow" id="unhide">Скрытых треков: '+hiddenN+' · <u>вернуть все</u></button>':'';
+  if(!v.length) return card('Ничего не нашлось по запросу «'+esc(query)+'».')+foot;
+  return '<ol>'+v.map((t,i)=>row(t,i,'lib')).join('')+'</ol>'+foot;
 }
 function listsHtml(){
   let h='<button class="newpl" id="newPl">'+PLUS+'Новый плейлист</button>';
@@ -465,7 +474,7 @@ function renderList(){
   const p=openPl&&pls.find(x=>x.id===openPl);
   if(openPl&&!p&&pls.length) openPl=null;
   $('tabLib').classList.toggle('on',tab==='lib'); $('tabLists').classList.toggle('on',tab==='lists'); $('tabRecs').classList.toggle('on',tab==='recs');
-  $('libBar').hidden=!(tab==='lib'&&perm===true&&lib.length);
+  $('libBar').hidden=!(tab==='lib'&&perm===true&&(lib.length||hiddenN));
   $('plBar').hidden=!(tab==='lists'&&p);
   $('list').innerHTML= tab==='lib'?libHtml() : tab==='recs'?recsHtml() : p?plHtml(p) : openPl?card('…') : listsHtml();
 }
@@ -478,8 +487,9 @@ $('q').addEventListener('input',e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=
 $('bRescan').onclick=()=>call('rescan');
 
 $('list').addEventListener('click',e=>{
-  const el=e.target.closest('[data-play],[data-menu],[data-rm],[data-open],[data-recplay],#askPerm,#newPl');
+  const el=e.target.closest('[data-play],[data-menu],[data-rm],[data-open],[data-recplay],#askPerm,#newPl,#unhide');
   if(!el) return;
+  if(el.id==='unhide'){ call('unhideAll'); speak(lines.unhid); return; }
   if(el.id==='askPerm') return call('askPermission');
   if(el.id==='newPl') return openName('Новый плейлист','',n=>{ openPl=call('newPlaylist',n); speak(lines.plNew(esc(n))); renderList(); });
   if(el.dataset.open) { openPl=el.dataset.open; window.scrollTo({top:$('list').offsetTop-80,behavior:'smooth'}); return renderList(); }
@@ -614,19 +624,32 @@ function openTrackMenu(id){
     (hasAlbum?opt('album','Переименовать альбом')+opt('acover','Своя обложка альбома'):'')+
     (t.tc?opt('treset','Вернуть трек как было'):'')+
     (t.ac?opt('areset','Вернуть альбом как было'):'')+
+    opt('hide','Скрыть из медиатеки')+
+    '<button class="opt danger" data-k="del">Удалить с телефона</button>'+
   '</div>');
   sheetClick=e=>{
     const b=e.target.closest('[data-k]'); if(!b) return;
     const k=b.dataset.k;
     if(k==='add') return openAddTo(id);
     if(k==='rename') return openForm('Переименовать трек',[{value:t.title,ph:'Название'},{value:t.artist,ph:'Исполнитель'}],v=>{ call('editTrack',id,v[0],v[1]||t.artist); speak(lines.renamed); });
+    if(k==='del') return openDelete(id);
     if(k==='album') return openForm('Переименовать альбом',[{value:t.album,ph:'Название альбома'}],v=>{ call('editAlbum',t.albumId,v[0]); speak(lines.renamed); });
     closeSheet();
     if(k==='tcover'){ call('pickCover','t',id); speak(lines.coverPick); }
     if(k==='acover'){ call('pickCover','a',t.albumId); speak(lines.coverPick); }
     if(k==='treset'){ call('resetCustom','t',id); speak(lines.reset); }
     if(k==='areset'){ call('resetCustom','a',t.albumId); speak(lines.reset); }
+    if(k==='hide'){ call('hideTrack',id); speak(lines.hid); }
   };
+}
+
+/* Подтверждение удаления файла */
+function openDelete(id){
+  const t=libMap[id]; if(!t) return;
+  openSheet('<h3>Удалить с телефона?</h3><p class="muted">«'+esc(t.title)+'» пропадёт насовсем: и файл, и трек во всех плейлистах. '+
+    'Если хочешь просто убрать его из плеера, выбери «Скрыть».</p>'+
+    '<div class="row2"><button class="btn ghost" data-x="no">Отмена</button><button class="btn" data-x="del">Удалить</button></div>');
+  sheetClick=e=>{ const b=e.target.closest('[data-x]'); if(!b) return; closeSheet(); if(b.dataset.x==='del') call('deleteTrack',id); };
 }
 
 function openAddTo(trackId){
