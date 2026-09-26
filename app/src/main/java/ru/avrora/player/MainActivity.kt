@@ -6,6 +6,9 @@ import android.content.ComponentName
 import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -33,7 +36,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Главный экран. Интерфейс нарисован в assets/www/index.html,
@@ -54,7 +59,10 @@ class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var pageReady = false
 
-    private val lib = LinkedHashMap<String, Track>()
+    private val raw = mutableListOf<Track>()              // как в медиатеке
+    private val lib = LinkedHashMap<String, Track>()      // с твоими правками
+    private val customArt = ConcurrentHashMap<String, String>()
+    private var pickTarget: Pair<String, String>? = null  // ("t", id) или ("a", albumId)
     private val playlists = mutableListOf<Playlist>()
     private var queueSource = ""
     private var scanning = false
@@ -66,6 +74,12 @@ class MainActivity : ComponentActivity() {
 
     private val permLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) scan() else pushLibrary()
+    }
+
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val target = pickTarget
+        pickTarget = null
+        if (uri != null && target != null) saveCover(target.first, target.second, uri)
     }
 
     private val ticker = object : Runnable {
@@ -157,8 +171,9 @@ class MainActivity : ComponentActivity() {
             val found = Library.scan(this)
             main.post {
                 scanning = false
-                lib.clear()
-                found.forEach { lib[it.id] = it }
+                raw.clear()
+                raw.addAll(found)
+                rebuildLib()
                 // удалённые с телефона треки убираем из плейлистов
                 if (found.isNotEmpty()) {
                     playlists.forEach { p -> p.ids.retainAll(lib.keys) }
@@ -171,7 +186,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Обложка трека для страницы: https://appassets.androidplatform.net/art/<id> */
-    private fun artResponse(id: String): WebResourceResponse {
+    private fun artResponse(path: String): WebResourceResponse {
+        val id = path.substringBefore('?')
         var bytes = artCache.get(id)
         if (bytes == null) {
             bytes = loadArt(id) ?: NO_ART
@@ -184,6 +200,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadArt(id: String): ByteArray? {
+        customArt[id]?.let { path -> return try { File(path).readBytes() } catch (e: Exception) { null } }
         if (Build.VERSION.SDK_INT < 29) return null
         val n = id.toLongOrNull() ?: return null
         return try {
@@ -193,6 +210,69 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             null
         }
+    }
+
+    // ---------- свои названия и обложки ----------
+
+    private fun rebuildLib() {
+        lib.clear()
+        customArt.clear()
+        raw.forEach { r ->
+            val t = Custom.apply(this, r)
+            lib[t.id] = t
+            t.art?.let { customArt[t.id] = it }
+        }
+        artCache.evictAll()
+    }
+
+    /** После правки: обновить список на экране и треки в очереди (уведомление, экран блокировки). */
+    private fun afterEdit(ids: Collection<String>) {
+        rebuildLib()
+        pushLibrary()
+        val exo = PlaybackService.instance?.exo ?: return
+        val set = ids.toHashSet()
+        for (i in 0 until exo.mediaItemCount) {
+            val id = exo.getMediaItemAt(i).mediaId
+            if (id in set) lib[id]?.let { exo.replaceMediaItem(i, it.toMediaItem()) }
+        }
+    }
+
+    private fun albumTracks(albumId: String) = raw.filter { it.albumId.toString() == albumId }.map { it.id }
+
+    /** Картинку из галереи обрезаем до квадрата 512×512 и сохраняем в приложении. */
+    private fun saveCover(kind: String, key: String, uri: Uri) {
+        Thread {
+            val name = try {
+                val src: Bitmap = if (Build.VERSION.SDK_INT >= 28) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { d, info, _ ->
+                        val k = maxOf(1, minOf(info.size.width, info.size.height) / 1024)
+                        d.setTargetSize(info.size.width / k, info.size.height / k)
+                        d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+                } else {
+                    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
+                    val k = maxOf(1, minOf(o.outWidth, o.outHeight) / 1024)
+                    contentResolver.openInputStream(uri)!!.use {
+                        BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = k })!!
+                    }
+                }
+                val side = minOf(src.width, src.height)
+                val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+                val out = Bitmap.createScaledBitmap(sq, 512, 512, true)
+                val n = "${kind}_${key}_${System.currentTimeMillis()}.jpg"
+                File(Custom.dir(this), n).outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                n
+            } catch (e: Exception) {
+                null
+            }
+            main.post {
+                if (name == null) { js("fromAndroid.saved('fail')"); return@post }
+                Custom.setCover(this, kind, key, name)
+                afterEdit(if (kind == "t") listOf(key) else albumTracks(key))
+                js("fromAndroid.saved('cover')")
+            }
+        }.start()
     }
 
     // ---------- очередь ----------
@@ -233,7 +313,12 @@ class MainActivity : ComponentActivity() {
         if (!pageReady) return
         val a = JSONArray()
         lib.values.forEach { t ->
-            a.put(JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("album", t.album).put("dur", t.dur))
+            a.put(
+                JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("album", t.album)
+                    .put("dur", t.dur).put("albumId", t.albumId.toString())
+                    .put("av", t.art?.substringAfterLast('_')?.substringBefore('.') ?: "0")
+                    .put("tc", Custom.has(this, "t", t.id)).put("ac", Custom.has(this, "a", t.albumId.toString()))
+            )
         }
         js("fromAndroid.library($a, ${hasPerm()}, $scanning)")
     }
@@ -406,6 +491,29 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun eqBand(i: Int, level: Int) { main.post { PlaybackService.instance?.eqBand(i, level) } }
         @JavascriptInterface fun eqBass(v: Int) { main.post { PlaybackService.instance?.setBass(v) } }
         @JavascriptInterface fun eqReset() { main.post { PlaybackService.instance?.eqReset() } }
+
+        // свои названия и обложки
+        @JavascriptInterface fun editTrack(id: String, title: String, artist: String) {
+            main.post { Custom.editTrack(this@MainActivity, id, title, artist); afterEdit(listOf(id)) }
+        }
+
+        @JavascriptInterface fun editAlbum(albumId: String, name: String) {
+            main.post { Custom.editAlbum(this@MainActivity, albumId, name); afterEdit(albumTracks(albumId)) }
+        }
+
+        @JavascriptInterface fun pickCover(kind: String, key: String) {
+            main.post { pickTarget = kind to key; imagePicker.launch("image/*") }
+        }
+
+        @JavascriptInterface fun resetCustom(kind: String, key: String) {
+            main.post {
+                Custom.reset(this@MainActivity, kind, key)
+                afterEdit(if (kind == "t") listOf(key) else albumTracks(key))
+            }
+        }
+
+        // рекомендации
+        @JavascriptInterface fun stats(): String = Stats.json(this@MainActivity)
 
         @JavascriptInterface fun levels(): String = Spectrum.levels()
     }

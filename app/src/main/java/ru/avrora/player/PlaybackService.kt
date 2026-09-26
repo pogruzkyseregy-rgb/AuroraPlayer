@@ -71,6 +71,17 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         exo.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                statFlush()
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                statFlush()
+                statId = mediaItem?.mediaId
+                statAcc = 0
+                statCounted = false
+            }
+
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // Таймер «до конца трека» сработал
                 if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && sleepEndOfTrack) cancelSleep()
@@ -132,6 +143,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        statFlush()
         instance = null
         handler.removeCallbacksAndMessages(null)
         try { eq?.release() } catch (_: Throwable) {}
@@ -140,6 +152,28 @@ class PlaybackService : MediaSessionService() {
         session = null
         AuroraWidget.push(this, null, null, false)
         super.onDestroy()
+    }
+
+    // ================= Статистика для рекомендаций =================
+    // Трек засчитывается, когда прослушан до середины (но не дольше 30 секунд).
+
+    private var statId: String? = null
+    private var statAcc = 0L
+    private var statSince = 0L
+    private var statCounted = false
+
+    private fun statFlush() {
+        val now = System.currentTimeMillis()
+        if (statSince > 0) statAcc += now - statSince
+        statSince = if (exo.isPlaying) now else 0
+        if (statId == null) statId = exo.currentMediaItem?.mediaId
+        val id = statId ?: return
+        val dur = exo.duration
+        val need = if (dur > 0) minOf(30_000L, dur / 2) else 30_000L
+        if (!statCounted && statAcc >= need) {
+            statCounted = true
+            Stats.record(this, id)
+        }
     }
 
     // ================= Таймер сна =================
