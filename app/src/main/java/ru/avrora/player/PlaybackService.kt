@@ -254,7 +254,7 @@ class PlaybackService : MediaSessionService() {
                     bands.put(JSONObject().put("hz", e.getCenterFreq(i.toShort()) / 1000).put("level", e.getBandLevel(i.toShort()).toInt()))
                 }
                 val presets = JSONArray()
-                for (i in 0 until e.numberOfPresets) presets.put(e.getPresetName(i.toShort()))
+                for (i in 0 until e.numberOfPresets) presets.put(e.getPresetName(i.toShort()).replace("\u0000", "").trim())
                 o.put("bands", bands).put("presets", presets).put("preset", p.getInt("eqPreset", -1))
             }
         } catch (t: Throwable) {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Аврора</title>
+<title>fluorite_blue</title>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 /* ===== Цвета приложения: меняй здесь ===== */
@@ -669,7 +669,7 @@ function openEq(){
   const db=l=>{ const v=Math.round(l/100); return (v>0?'+':'')+v+' дБ'; };
   let h='<h3>Эквалайзер</h3>';
   if(s.ok){
-    h+='<div class="chips">'+(s.presets||[]).map((n,i)=>'<button class="chip'+(s.preset===i?' on':'')+'" data-p="'+i+'">'+esc(RU_PRESETS[n]||n)+'</button>').join('')+'</div>';
+    h+='<div class="chips">'+(s.presets||[]).map((n,i)=>'<button class="chip'+(s.preset===i?' on':'')+'" data-p="'+i+'">'+esc(RU_PRESETS[String(n).replace(/\u0000/g,'').trim()]||n)+'</button>').join('')+'</div>';
     h+=(s.bands||[]).map((b,i)=>'<label class="band"><span>'+hz(b.hz)+'</span><input type="range" min="'+s.min+'" max="'+s.max+'" step="50" value="'+b.level+'" data-b="'+i+'"><span class="v" id="bv'+i+'">'+db(b.level)+'</span></label>').join('');
   }
   if(s.bassOk) h+='<label class="band"><span>Басы</span><input type="range" min="0" max="1000" step="10" value="'+s.bass+'" id="bassIn"><span class="v" id="bassV">'+Math.round(s.bass/10)+'%</span></label>';

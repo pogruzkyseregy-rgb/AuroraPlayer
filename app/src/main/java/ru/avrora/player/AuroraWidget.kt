@@ -53,7 +53,7 @@ class AuroraWidget : AppWidgetProvider() {
             if (mgr.getAppWidgetIds(cn).isEmpty()) return
 
             val v = RemoteViews(ctx.packageName, R.layout.widget)
-            v.setTextViewText(R.id.w_title, title ?: "Аврора")
+            v.setTextViewText(R.id.w_title, title ?: "fluorite_blue")
             v.setTextViewText(R.id.w_artist, artist ?: "Нажми ▶, чтобы продолжить")
             v.setImageViewResource(R.id.w_play, if (playing) R.drawable.ic_w_pause else R.drawable.ic_w_play)
             v.setOnClickPendingIntent(R.id.w_play, key(ctx, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 1))
