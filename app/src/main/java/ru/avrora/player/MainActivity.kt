@@ -1,12 +1,18 @@
 package ru.avrora.player
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ComponentName
-import android.content.Intent
-import android.net.Uri
+import android.content.ContentUris
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
+import android.util.LruCache
+import android.util.Size
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -14,6 +20,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
@@ -24,55 +31,66 @@ import androidx.webkit.WebViewAssetLoader
 import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.UUID
 
 /**
  * Главный экран. Интерфейс нарисован в assets/www/index.html,
  * а этот класс связывает его с плеером:
- *   страница -> Android: через объект Android (класс Bridge ниже)
- *   Android -> страница: через функции window.fromAndroid.*
+ *   страница -> Android: объект Android (класс Bridge ниже)
+ *   Android -> страница: функции window.fromAndroid.*
  */
 class MainActivity : ComponentActivity() {
 
     private companion object {
         const val HOST = "https://appassets.androidplatform.net"
+        val NO_ART = ByteArray(0)
     }
 
     private lateinit var web: WebView
     private var controller: MediaController? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
-    private val tracks = mutableListOf<Track>()
     private val main = Handler(Looper.getMainLooper())
     private var pageReady = false
 
-    private val picker =
-        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty()) importTracks(uris)
-        }
+    private val lib = LinkedHashMap<String, Track>()
+    private val playlists = mutableListOf<Playlist>()
+    private var queueSource = ""
+    private var scanning = false
+    private val artCache = LruCache<String, ByteArray>(80)
 
-    // Раз в полсекунды сообщаем странице позицию в треке
-    private val ticker = object : Runnable {
-        override fun run() {
-            pushState()
-            main.postDelayed(this, 500)
-        }
+    private val audioPerm =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private val permLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) scan() else pushLibrary()
     }
+
+    private val ticker = object : Runnable {
+        override fun run() { pushState(); main.postDelayed(this, 500) }
+    }
+
+    private fun hasPerm() =
+        ContextCompat.checkSelfPermission(this, audioPerm) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        tracks.addAll(TrackStore.load(this))
+        playlists.addAll(Library.loadPlaylists(this))
+        queueSource = Library.loadSource(this)
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .addPathHandler("/covers/", WebViewAssetLoader.InternalStoragePathHandler(this, TrackStore.coverDir(this)))
+            .addPathHandler("/art/") { path -> artResponse(path) }
             .build()
 
         web = WebView(this).apply {
             setBackgroundColor(0xFF1A1433.toInt())
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            webChromeClient = WebChromeClient() // нужен для окна подтверждения confirm()
+            webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                     loader.shouldInterceptRequest(request.url)
@@ -81,6 +99,17 @@ class MainActivity : ComponentActivity() {
             loadUrl("$HOST/assets/www/index.html")
         }
         setContentView(web)
+
+        // «Назад» сначала закрывает окна на странице, потом сворачивает приложение
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                web.evaluateJavascript("window.fromAndroid ? fromAndroid.back() : false") { r ->
+                    if (r != "true") moveTaskToBack(true)
+                }
+            }
+        })
+
+        if (hasPerm()) scan()
     }
 
     override fun onStart() {
@@ -94,11 +123,12 @@ class MainActivity : ComponentActivity() {
             c.addListener(object : Player.Listener {
                 override fun onEvents(player: Player, events: Player.Events) = pushState()
             })
-            if (c.mediaItemCount == 0 && tracks.isNotEmpty()) {
-                c.setMediaItems(tracks.map { it.toMediaItem(this) })
-                c.prepare()
+            if (c.mediaItemCount == 0) {
+                Library.loadQueue(this)?.let { (tracks, index, pos) ->
+                    c.setMediaItems(tracks.map { it.toMediaItem() }, index, pos)
+                    c.prepare()
+                }
             }
-            pushTracks()
             pushState()
             main.post(ticker)
         }, ContextCompat.getMainExecutor(this))
@@ -117,71 +147,100 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    // ---------- плейлист ----------
+    // ---------- медиатека ----------
 
-    private fun importTracks(uris: List<Uri>) {
+    private fun scan() {
+        if (scanning) return
+        scanning = true
+        pushLibrary()
         Thread {
-            val added = uris.map { uri ->
-                try {
-                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                } catch (_: SecurityException) {}
-                TrackStore.read(this, uri)
-            }
+            val found = Library.scan(this)
             main.post {
-                val wasEmpty = (controller?.mediaItemCount ?: 0) == 0
-                tracks.addAll(added)
-                TrackStore.save(this, tracks)
-                controller?.let { c ->
-                    c.addMediaItems(added.map { it.toMediaItem(this) })
-                    if (wasEmpty) c.prepare()
+                scanning = false
+                lib.clear()
+                found.forEach { lib[it.id] = it }
+                // удалённые с телефона треки убираем из плейлистов
+                if (found.isNotEmpty()) {
+                    playlists.forEach { p -> p.ids.retainAll(lib.keys) }
+                    Library.savePlaylists(this, playlists)
                 }
-                pushTracks()
-                js("fromAndroid.added(${added.size})")
-                pushState()
+                pushLibrary()
+                pushPlaylists()
             }
         }.start()
     }
 
-    private fun removeTrack(i: Int) {
-        if (i !in tracks.indices) return
-        val t = tracks.removeAt(i)
-        forgetFiles(t)
-        TrackStore.save(this, tracks)
-        controller?.removeMediaItem(i)
-        pushTracks()
-        pushState()
+    /** Обложка трека для страницы: https://appassets.androidplatform.net/art/<id> */
+    private fun artResponse(id: String): WebResourceResponse {
+        var bytes = artCache.get(id)
+        if (bytes == null) {
+            bytes = loadArt(id) ?: NO_ART
+            artCache.put(id, bytes)
+        }
+        if (bytes.isEmpty()) {
+            return WebResourceResponse("image/jpeg", null, 404, "Not Found", emptyMap(), ByteArrayInputStream(bytes))
+        }
+        return WebResourceResponse("image/jpeg", null, ByteArrayInputStream(bytes))
     }
 
-    private fun clearTracks() {
-        controller?.clearMediaItems()
-        tracks.forEach { forgetFiles(it) }
-        tracks.clear()
-        TrackStore.save(this, tracks)
-        pushTracks()
-        pushState()
+    private fun loadArt(id: String): ByteArray? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val n = id.toLongOrNull() ?: return null
+        return try {
+            val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, n)
+            val bmp = contentResolver.loadThumbnail(uri, Size(256, 256), null)
+            ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+        } catch (e: Exception) {
+            null
+        }
     }
 
-    private fun forgetFiles(t: Track) {
-        t.cover?.let { File(TrackStore.coverDir(this), it).delete() }
-        try {
-            contentResolver.releasePersistableUriPermission(Uri.parse(t.uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (_: Exception) {}
+    // ---------- очередь ----------
+
+    private fun playQueue(idsJson: String, index: Int, source: String) {
+        val c = controller ?: return
+        val arr = JSONArray(idsJson)
+        val ids = List(arr.length()) { arr.getString(it) }.filter { lib.containsKey(it) }
+        if (ids.isEmpty()) return
+        val i = index.coerceIn(0, ids.size - 1)
+        val same = source == queueSource && c.mediaItemCount == ids.size &&
+            ids.indices.all { c.getMediaItemAt(it).mediaId == ids[it] }
+        if (same) c.seekToDefaultPosition(i)
+        else {
+            c.setMediaItems(ids.map { lib[it]!!.toMediaItem() }, i, 0)
+            setSource(source)
+        }
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+    }
+
+    private fun setSource(s: String) {
+        queueSource = s
+        Library.saveSource(this, s)
+    }
+
+    /** Играет ли сейчас очередь из этого плейлиста, и совпадает ли она с ним. */
+    private fun queueIs(p: Playlist): Boolean {
+        val c = controller ?: return false
+        return queueSource == "pl:${p.id}" && c.mediaItemCount == p.ids.size
     }
 
     // ---------- Android -> страница ----------
 
     private fun js(code: String) = web.evaluateJavascript("window.fromAndroid && $code", null)
 
-    private fun pushTracks() {
+    private fun pushLibrary() {
         if (!pageReady) return
-        val arr = JSONArray()
-        tracks.forEach { t ->
-            arr.put(
-                JSONObject().put("title", t.title).put("artist", t.artist)
-                    .put("cover", t.cover?.let { "$HOST/covers/$it" } ?: JSONObject.NULL)
-            )
+        val a = JSONArray()
+        lib.values.forEach { t ->
+            a.put(JSONObject().put("id", t.id).put("title", t.title).put("artist", t.artist).put("album", t.album).put("dur", t.dur))
         }
-        js("fromAndroid.tracks($arr)")
+        js("fromAndroid.library($a, ${hasPerm()}, $scanning)")
+    }
+
+    private fun pushPlaylists() {
+        if (!pageReady) return
+        js("fromAndroid.playlists(${Library.playlistsJson(playlists)})")
     }
 
     private fun pushState() {
@@ -194,15 +253,19 @@ class MainActivity : ComponentActivity() {
             else -> "off"
         }
         o.put("shuffle", c?.shuffleModeEnabled ?: false).put("repeat", repeat)
+            .put("source", queueSource).put("sleep", PlaybackService.instance?.sleepLeft() ?: 0)
         if (c == null || c.mediaItemCount == 0) {
             o.put("playing", false).put("moving", false).put("ended", false)
-                .put("index", -1).put("pos", 0).put("dur", 0)
+                .put("currentId", "").put("title", "").put("artist", "").put("pos", 0).put("dur", 0)
         } else {
             val ended = c.playbackState == Player.STATE_ENDED
+            val m = c.mediaMetadata
             o.put("playing", c.playWhenReady && !ended)
                 .put("moving", c.isPlaying)
                 .put("ended", ended)
-                .put("index", c.currentMediaItemIndex)
+                .put("currentId", c.currentMediaItem?.mediaId ?: "")
+                .put("title", m.title?.toString() ?: "")
+                .put("artist", m.artist?.toString() ?: "")
                 .put("pos", c.currentPosition)
                 .put("dur", if (c.duration == C.TIME_UNSET) 0 else c.duration)
         }
@@ -210,7 +273,6 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- страница -> Android ----------
-    // Эти методы вызываются из JavaScript как Android.toggle(), Android.next() и т.д.
 
     inner class Bridge {
         private fun ui(block: MediaController.() -> Unit) {
@@ -222,14 +284,26 @@ class MainActivity : ComponentActivity() {
             play()
         }
 
+        private fun pl(id: String) = playlists.firstOrNull { it.id == id }
+
         @JavascriptInterface fun ready() {
-            main.post { pageReady = true; pushTracks(); pushState() }
+            main.post { pageReady = true; pushLibrary(); pushPlaylists(); pushState() }
         }
 
-        @JavascriptInterface fun pick() {
-            main.post { picker.launch(arrayOf("audio/*")) }
+        // медиатека
+        @JavascriptInterface fun askPermission() {
+            main.post { if (hasPerm()) scan() else permLauncher.launch(audioPerm) }
         }
 
+        @JavascriptInterface fun rescan() {
+            main.post { if (hasPerm()) scan() else permLauncher.launch(audioPerm) }
+        }
+
+        @JavascriptInterface fun playList(idsJson: String, index: Int, source: String) {
+            main.post { playQueue(idsJson, index, source) }
+        }
+
+        // управление
         @JavascriptInterface fun toggle() = ui {
             if (playWhenReady && playbackState != Player.STATE_ENDED) pause()
             else {
@@ -238,19 +312,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        @JavascriptInterface fun playAt(i: Int) = ui {
-            if (i in 0 until mediaItemCount) { seekToDefaultPosition(i); start() }
-        }
-
         @JavascriptInterface fun next() = ui {
             if (hasNextMediaItem()) seekToNextMediaItem() else if (mediaItemCount > 0) seekToDefaultPosition(0)
             start()
         }
 
         @JavascriptInterface fun prev() = ui { seekToPrevious(); start() }
-
         @JavascriptInterface fun seek(ms: Double) = ui { seekTo(ms.toLong()) }
-
         @JavascriptInterface fun setShuffle(on: Boolean) = ui { shuffleModeEnabled = on }
 
         @JavascriptInterface fun setRepeat(mode: String) = ui {
@@ -261,9 +329,83 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        @JavascriptInterface fun remove(i: Int) { main.post { removeTrack(i) } }
+        // плейлисты
+        @JavascriptInterface fun newPlaylist(name: String): String {
+            val id = UUID.randomUUID().toString()
+            main.post {
+                playlists.add(Playlist(id, name.trim().ifEmpty { "Новый плейлист" }, mutableListOf()))
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+            return id
+        }
 
-        @JavascriptInterface fun clear() { main.post { clearTracks() } }
+        @JavascriptInterface fun renamePlaylist(id: String, name: String) {
+            main.post {
+                pl(id)?.let { it.name = name.trim().ifEmpty { it.name } }
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+        }
+
+        @JavascriptInterface fun deletePlaylist(id: String) {
+            main.post {
+                playlists.removeAll { it.id == id }
+                if (queueSource == "pl:$id") setSource("")
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+        }
+
+        @JavascriptInterface fun addToPlaylist(id: String, trackId: String) {
+            main.post {
+                val p = pl(id) ?: return@post
+                val t = lib[trackId] ?: return@post
+                if (trackId in p.ids) return@post
+                val synced = queueIs(p)
+                p.ids.add(trackId)
+                if (synced) controller?.addMediaItem(t.toMediaItem())
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+        }
+
+        @JavascriptInterface fun removeFromPlaylist(id: String, index: Int) {
+            main.post {
+                val p = pl(id) ?: return@post
+                if (index !in p.ids.indices) return@post
+                val synced = queueIs(p)
+                p.ids.removeAt(index)
+                if (synced) controller?.removeMediaItem(index)
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+                pushState()
+            }
+        }
+
+        @JavascriptInterface fun movePlaylist(id: String, from: Int, to: Int) {
+            main.post {
+                val p = pl(id) ?: return@post
+                if (from !in p.ids.indices || to !in p.ids.indices || from == to) return@post
+                val synced = queueIs(p)
+                p.ids.add(to, p.ids.removeAt(from))
+                if (synced) controller?.moveMediaItem(from, to)
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+        }
+
+        // таймер сна: минуты, -1 = до конца трека, 0 = выключить
+        @JavascriptInterface fun sleep(minutes: Int) {
+            main.post { PlaybackService.instance?.setSleep(minutes); pushState() }
+        }
+
+        // эквалайзер
+        @JavascriptInterface fun eqState(): String = PlaybackService.instance?.eqJson() ?: "{\"ok\":false}"
+        @JavascriptInterface fun eqPreset(i: Int) { main.post { PlaybackService.instance?.eqPreset(i) } }
+        @JavascriptInterface fun eqBand(i: Int, level: Int) { main.post { PlaybackService.instance?.eqBand(i, level) } }
+        @JavascriptInterface fun eqBass(v: Int) { main.post { PlaybackService.instance?.setBass(v) } }
+        @JavascriptInterface fun eqReset() { main.post { PlaybackService.instance?.eqReset() } }
 
         @JavascriptInterface fun levels(): String = Spectrum.levels()
     }

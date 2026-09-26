@@ -11,13 +11,28 @@ android {
         applicationId = "ru.avrora.player"
         minSdk = 26          // Android 8.0 и новее
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+    }
+
+    // Постоянный ключ подписи: благодаря ему новые версии
+    // устанавливаются поверх старых, без удаления приложения.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("aurora-debug.jks")
+            storePassword = "aurora123"
+            keyAlias = "aurora"
+            keyPassword = "aurora123"
+        }
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
