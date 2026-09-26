@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Aurora" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/night</item>
+        <item name="android:statusBarColor">@color/night</item>
+        <item name="android:navigationBarColor">@color/night</item>
+        <item name="android:colorAccent">@color/fox</item>
+    </style>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Солнце с лисьими ушками над горизонтом -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFAB6E"
+        android:pathData="M38,50 L41,31 L51,43 Z M70,50 L67,31 L57,43 Z M34,62 a20,20 0 1,1 40,0 a20,20 0 1,1 -40,0 Z" />
+    <path android:fillColor="#FF140E28" android:pathData="M20,68h68v22h-68z" />
+    <path android:fillColor="#88FFBE82" android:pathData="M36,72h36v2h-36z M41,77h26v2h-26z M46,82h16v2h-16z" />
+</vector>

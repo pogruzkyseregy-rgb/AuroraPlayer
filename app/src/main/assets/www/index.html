@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Аврора</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ===== Цвета приложения: меняй здесь ===== */
+:root{
+  --bg:#1a1433; --surface:#241c45; --line:#352a5e; --text:#f3e6ff; --muted:#b4a3d6;
+  --fox:#ff9a5c; --rose:#ff7a8a; --onfox:#1a1433; --row:#2c2352;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0; background:var(--bg); color:var(--text)}
+body{font-family:"Manrope",system-ui,Roboto,sans-serif; font-size:16px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent; user-select:none}
+.wrap{max-width:520px; margin:0 auto; padding:18px 16px 32px}
+header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:4px}
+h1{font-family:"Unbounded","Manrope",system-ui,sans-serif; font-weight:700; font-size:28px;
+  letter-spacing:-0.02em; margin:0; line-height:1.1;
+  background:linear-gradient(90deg,var(--fox),var(--rose)); -webkit-background-clip:text; background-clip:text; color:transparent}
+.sub{color:var(--muted); font-size:14px}
+.say{margin:0 0 14px; min-height:3em; color:var(--muted); font-size:15px; transition:opacity .35s}
+.say b{color:var(--text); font-weight:600}
+.sky{position:relative; width:100%; aspect-ratio:16/11; border-radius:28px; overflow:hidden; background:#120d2a;
+  box-shadow:0 18px 40px -22px rgba(0,0,0,.7)}
+.sky canvas{display:block; width:100%; height:100%}
+.now{display:flex; gap:14px; align-items:center; margin:18px 0 10px}
+.cover{width:58px; height:58px; flex:none; border-radius:16px; overflow:hidden;
+  background:linear-gradient(160deg,var(--fox),var(--rose)); display:grid; place-items:center}
+.cover img{width:100%; height:100%; object-fit:cover; display:block}
+.cover svg{width:34px; height:34px}
+.meta{min-width:0; flex:1}
+.title{font-family:"Unbounded","Manrope",system-ui,sans-serif; font-weight:500; font-size:17px; line-height:1.3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.artist{color:var(--muted); font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.seek{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:30px; background:transparent; margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:6px; border-radius:6px;
+  background:linear-gradient(90deg,var(--fox) 0 var(--p,0%),var(--line) var(--p,0%) 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+  background:var(--fox); margin-top:-7px; border:3px solid var(--bg)}
+.controls{display:flex; justify-content:space-between; align-items:center; margin:8px 4px 28px}
+button{font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer}
+.ib{width:48px; height:48px; border-radius:50%; display:grid; place-items:center; color:var(--muted); position:relative}
+.ib svg{width:24px; height:24px}
+.ib.main{color:var(--text)}
+.ib.on{color:var(--fox)}
+.ib .one{position:absolute; font-size:10px; font-weight:700; top:9px; right:8px; color:var(--fox)}
+.play{width:72px; height:72px; border-radius:50%; display:grid; place-items:center;
+  background:linear-gradient(150deg,var(--fox),var(--rose)); color:var(--onfox); box-shadow:0 10px 24px -10px var(--rose)}
+.play svg{width:30px; height:30px}
+.play:active,.ib:active{transform:scale(.94)}
+.listhead{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px}
+h2{font-family:"Unbounded","Manrope",system-ui,sans-serif; font-weight:500; font-size:17px; margin:0}
+.add{display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:999px;
+  background:var(--surface); border:1.5px solid var(--fox); color:var(--fox); font-weight:700; font-size:14px}
+.add svg{width:18px; height:18px}
+ol{list-style:none; margin:0; padding:0; border-radius:20px; overflow:hidden; background:var(--surface); border:1px solid var(--line)}
+li{display:flex; align-items:center; border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+li.cur{background:var(--row)}
+.pick{flex:1; min-width:0; text-align:left; padding:12px 6px 12px 16px; display:flex; gap:12px; align-items:center}
+.pick .n{width:22px; flex:none; color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; text-align:right}
+li.cur .n{color:var(--fox)}
+.pick .t{min-width:0}
+.pick .t div{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.pick .t .a{color:var(--muted); font-size:13px}
+li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
+.del{width:44px; height:44px; flex:none; color:var(--muted); display:grid; place-items:center; margin-right:4px}
+.del svg{width:18px; height:18px}
+.empty{padding:28px 20px; text-align:center; color:var(--muted); background:var(--surface); border:1.5px dashed var(--line); border-radius:20px}
+.foot{display:flex; justify-content:space-between; gap:10px; margin-top:12px; color:var(--muted); font-size:13px}
+.foot button{color:var(--muted); text-decoration:underline; text-underline-offset:3px; font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Аврора</h1><span class="sub">плеер</span></header>
+  <p class="say" id="say">Просыпаюсь…</p>
+
+  <div class="sky"><canvas id="sky"></canvas></div>
+
+  <div class="now">
+    <div class="cover" id="cover"></div>
+    <div class="meta">
+      <div class="title" id="title">Ничего не играет</div>
+      <div class="artist" id="artist">Выбери трек из списка</div>
+    </div>
+  </div>
+
+  <div class="seek">
+    <span id="cur">0:00</span>
+    <input type="range" id="pos" min="0" max="1000" value="0" aria-label="Позиция в треке">
+    <span id="dur">0:00</span>
+  </div>
+
+  <div class="controls">
+    <button class="ib" id="shuffle" aria-label="Перемешать">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+    </button>
+    <button class="ib main" id="prev" aria-label="Предыдущий трек">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+    </button>
+    <button class="play" id="play" aria-label="Играть">
+      <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <button class="ib main" id="next" aria-label="Следующий трек">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+    </button>
+    <button class="ib" id="repeat" aria-label="Повтор">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      <span class="one" id="one" hidden>1</span>
+    </button>
+  </div>
+
+  <div class="listhead">
+    <h2>Плейлист</h2>
+    <button class="add" id="add">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Добавить музыку
+    </button>
+  </div>
+  <div id="list"></div>
+  <div class="foot" id="foot" hidden>
+    <span id="count"></span>
+    <button id="clear">Очистить плейлист</button>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const A=window.Android;               // мост в Kotlin (MainActivity.Bridge)
+const say=$('say');
+
+/* ===== Реплики Авроры: дописывай свои ===== */
+const lines={
+  play:["Сигнал чистый. Слушаем.","Эту я бы поставила сама.","Громче, пусть цензоры завидуют.",
+        "Хвост уже отбивает ритм.","Ночь заканчивается где-то на припеве.","Ни одна блокировка сюда не дотянется."],
+  pause:["Пауза. Я никуда не денусь.","Ставлю рассвет на паузу.","Жду, когда вернёшься."],
+  end:"Плейлист закончился. Рассвет наступил.",
+  empty:"Здесь пока тихо. Добавь музыку, и начнётся рассвет.",
+  welcome:n=>"С возвращением. Твои треки на месте: <b>"+n+"</b>.",
+  added:n=>"Добавлено треков: <b>"+n+"</b>. Я их запомню.",
+  shuffleOn:"Перемешиваю. Посмотрим, что выпадет.", shuffleOff:"Играю по порядку.",
+  repeat:{off:"Повтор выключен.",all:"Буду крутить весь плейлист по кругу.",one:"Этот трек, снова и снова."}
+};
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+function speak(html){ say.style.opacity=0; setTimeout(()=>{say.innerHTML=html; say.style.opacity=1},180); }
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=ms=>{ let s=Math.floor((ms||0)/1000); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+const FOX='<svg viewBox="0 0 24 24" fill="#fff"><path d="M3 20 6 4l6 7 6-7 3 16z" opacity=".95"/></svg>';
+
+/* ===== Состояние, которое присылает Android ===== */
+let tracks=[], st={playing:false,moving:false,ended:false,index:-1,pos:0,dur:0,shuffle:false,repeat:'off'};
+let stAt=performance.now(), firstTracks=true, seeking=false;
+const curPos=()=>Math.min(st.dur||0, st.pos+(st.moving?performance.now()-stAt:0));
+
+window.fromAndroid={
+  tracks(list){
+    tracks=list; render(); updateNow();
+    if(firstTracks){ speak(list.length?lines.welcome(list.length):lines.empty); firstTracks=false; }
+    else if(!list.length) speak(lines.empty);
+  },
+  state(s){
+    const was=st; st=s; stAt=performance.now();
+    if(s.playing&&(!was.playing||s.index!==was.index)) speak(pick(lines.play));
+    else if(s.ended&&!was.ended) speak(lines.end);
+    else if(!s.playing&&was.playing&&!s.ended&&s.index>=0) speak(pick(lines.pause));
+    $('icoPlay').style.display=s.playing?'none':''; $('icoPause').style.display=s.playing?'':'none';
+    $('shuffle').classList.toggle('on',s.shuffle);
+    $('repeat').classList.toggle('on',s.repeat!=='off'); $('one').hidden=s.repeat!=='one';
+    $('dur').textContent=fmt(s.dur);
+    if(was.index!==s.index||was.playing!==s.playing){ render(); updateNow(); }
+  },
+  added(n){ speak(lines.added(n)); }
+};
+
+function updateNow(){
+  const t=tracks[st.index];
+  $('title').textContent=t?t.title:'Ничего не играет';
+  $('artist').textContent=t?t.artist:'Выбери трек из списка';
+  $('cover').innerHTML=t&&t.cover?'<img alt="" src="'+t.cover+'">':FOX;
+}
+function render(){
+  const L=$('list');
+  if(!tracks.length){ L.innerHTML='<div class="empty">Нажми «Добавить музыку» и выбери файлы на телефоне.</div>'; $('foot').hidden=true; return; }
+  L.innerHTML='<ol>'+tracks.map((t,i)=>
+    '<li class="'+(i===st.index?'cur':'')+'"><button class="pick" data-i="'+i+'">'+
+    '<span class="n">'+(i===st.index&&st.playing?'♪':(i+1))+'</span>'+
+    '<span class="t"><div>'+esc(t.title)+'</div><div class="a">'+esc(t.artist)+'</div></span></button>'+
+    '<button class="del" data-del="'+i+'" aria-label="Убрать"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></li>'
+  ).join('')+'</ol>';
+  $('foot').hidden=false; $('count').textContent='Треков: '+tracks.length;
+}
+
+/* ===== Кнопки ===== */
+if(!A){ speak('Это экран Android-приложения, в браузере кнопки не работают.'); }
+const call=(fn,...a)=>A&&A[fn](...a);
+$('play').onclick=()=>{ if(!tracks.length){ speak(lines.empty); return; } call('toggle'); };
+$('next').onclick=()=>call('next');
+$('prev').onclick=()=>call('prev');
+$('add').onclick=()=>call('pick');
+$('shuffle').onclick=()=>{ const on=!st.shuffle; call('setShuffle',on); speak(on?lines.shuffleOn:lines.shuffleOff); };
+$('repeat').onclick=()=>{ const m=st.repeat==='off'?'all':st.repeat==='all'?'one':'off'; call('setRepeat',m); speak(lines.repeat[m]); };
+$('clear').onclick=()=>{ if(confirm('Убрать все треки из плейлиста?')) call('clear'); };
+$('list').addEventListener('click',e=>{
+  const p=e.target.closest('[data-i]'), d=e.target.closest('[data-del]');
+  if(p){ const i=+p.dataset.i; i===st.index?call('toggle'):call('playAt',i); }
+  if(d) call('remove',+d.dataset.del);
+});
+const pos=$('pos');
+pos.addEventListener('input',()=>{ seeking=true; pos.style.setProperty('--p',pos.value/10+'%'); $('cur').textContent=fmt(pos.value/1000*st.dur); });
+pos.addEventListener('change',()=>{ const ms=pos.value/1000*st.dur; call('seek',ms); st.pos=ms; stAt=performance.now(); seeking=false; });
+
+/* ===== Небо: солнце поднимается, пока играет трек ===== */
+const cv=$('sky'), g=cv.getContext('2d');
+let W=0,H=0;
+function size(){ const d=Math.min(devicePixelRatio||1,2); W=cv.clientWidth; H=cv.clientHeight; cv.width=W*d; cv.height=H*d; g.setTransform(d,0,0,d,0,0); }
+new ResizeObserver(size).observe(cv); size();
+const stars=Array.from({length:46},()=>({x:Math.random(),y:Math.random()*.62,r:Math.random()*1.3+.3,ph:Math.random()*6.28}));
+const hex=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const mix=(a,b,t)=>{a=hex(a);b=hex(b);return 'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')'};
+const N=22, lv=new Array(N).fill(0);
+let lift=0, bassS=0, frame=0;
+
+function draw(ts){
+  frame++;
+  const p0=st.dur>0?curPos()/st.dur:0;
+  if(!seeking){ pos.value=p0*1000; pos.style.setProperty('--p',p0*100+'%'); $('cur').textContent=fmt(curPos()); }
+  lift+=(p0-lift)*.05;
+  const p=lift, hy=H*.7, cx=W/2;
+
+  // полосы эквалайзера из Kotlin (Spectrum.kt)
+  if(st.moving&&A&&frame%2===0){
+    const s=A.levels();
+    if(s){ const a=s.split(','); for(let k=0;k<N;k++) lv[k]=+a[k]||0; }
+  } else if(!st.moving){ for(let k=0;k<N;k++) lv[k]*=.9; }
+  bassS+=((lv[0]+lv[1]+lv[2])/3-bassS)*.25;
+
+  const sky=g.createLinearGradient(0,0,0,hy);
+  sky.addColorStop(0,mix('#120d2a','#3b2a6b',p));
+  sky.addColorStop(.6,mix('#2a1c4f','#b04f7a',p));
+  sky.addColorStop(1,mix('#4a2a5e','#ffab6e',p));
+  g.fillStyle=sky; g.fillRect(0,0,W,hy+1);
+
+  const t=ts/1000;
+  for(const s of stars){
+    const a=(1-p*1.1)*(.55+.45*Math.sin(t*1.3+s.ph)); if(a<=0) continue;
+    g.globalAlpha=a; g.fillStyle='#f3e6ff'; g.beginPath(); g.arc(s.x*W,s.y*H,s.r,0,6.283); g.fill();
+  }
+  g.globalAlpha=1;
+
+  // солнце с ушками
+  const R=Math.min(W,H)*.16*(1+bassS*.18);
+  const sy=hy+R*.55-p*(hy*.48);
+  const glow=g.createRadialGradient(cx,sy,R*.4,cx,sy,R*3.2);
+  glow.addColorStop(0,'rgba(255,170,110,'+(.45+bassS*.35)+')'); glow.addColorStop(1,'rgba(255,120,140,0)');
+  g.fillStyle=glow; g.fillRect(0,0,W,hy);
+  const sun=g.createLinearGradient(0,sy-R,0,sy+R);
+  sun.addColorStop(0,'#ffd08a'); sun.addColorStop(1,'#ff7a6a');
+  g.fillStyle=sun; g.beginPath(); g.arc(cx,sy,R,0,6.283);
+  const ex=R*.62, ew=R*.36, eh=R*.62+bassS*R*.25;
+  g.moveTo(cx-ex-ew*.55,sy-R*.72); g.lineTo(cx-ex+ew*.1,sy-R-eh); g.lineTo(cx-ex+ew*.95,sy-R*.92); g.closePath();
+  g.moveTo(cx+ex+ew*.55,sy-R*.72); g.lineTo(cx+ex-ew*.1,sy-R-eh); g.lineTo(cx+ex-ew*.95,sy-R*.92); g.closePath();
+  g.fill();
+
+  // лучи-эквалайзер от центра к краям
+  const step=(W*.94/2)/N, bw=Math.max(2,step*.46);
+  const bar=g.createLinearGradient(0,hy,0,hy-hy*.6);
+  bar.addColorStop(0,'rgba(255,190,120,.95)'); bar.addColorStop(1,'rgba(255,110,150,0)');
+  g.fillStyle=bar;
+  for(let k=0;k<N;k++){ const h=Math.max(1.5,lv[k]*hy*.58);
+    for(const sg of [-1,1]) g.fillRect(cx+sg*(k+.5)*step-bw/2,hy-h,bw,h); }
+
+  // земля и отражение
+  const ground=g.createLinearGradient(0,hy,0,H);
+  ground.addColorStop(0,mix('#1f1540','#3a2352',p)); ground.addColorStop(1,'#120d26');
+  g.fillStyle=ground; g.fillRect(0,hy,W,H-hy);
+  g.fillStyle='rgba(255,160,120,.22)';
+  for(let k=0;k<N;k++){ const h=lv[k]*hy*.2; for(const sg of [-1,1]) g.fillRect(cx+sg*(k+.5)*step-bw/2,hy+2,bw,h); }
+  g.fillStyle='rgba(255,190,130,'+(.25+p*.4)+')';
+  for(let j=0;j<5;j++){ const w=R*(1.6-j*.26)*(1+p); g.fillRect(cx-w/2,hy+6+j*7,w,2); }
+  g.fillStyle='rgba(255,200,150,'+(.35+p*.4)+')'; g.fillRect(0,hy,W,1);
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+render(); updateNow();
+if(A) A.ready();
+})();
+</script>
+</body>
+</html>
