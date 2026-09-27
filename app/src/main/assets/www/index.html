@@ -135,6 +135,18 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 .sig .cur{font-style:normal; animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 
+/* --- оформление --- */
+.themes{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:6px}
+.thc{text-align:left}
+.thc i{display:grid; place-items:center; aspect-ratio:16/11; border-radius:14px; border:2px solid transparent;
+  background-color:#120a22; background-size:cover; background-position:center; color:var(--muted)}
+.thc i svg{width:26px; height:26px}
+.thc.none i{border:1.5px dashed var(--line)}
+.thc.on i{border-color:var(--fox)}
+.thc span{display:block; margin-top:6px; font-size:14px; font-weight:600}
+.thc.on span{color:var(--fox)}
+.sw{display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:6px; vertical-align:-2px}
+
 /* --- нижние окна --- */
 .scrim{position:fixed; inset:0; z-index:20; background:rgba(10,6,24,.6); opacity:0; pointer-events:none; transition:opacity .2s}
 .scrim.show{opacity:1; pointer-events:auto}
@@ -179,6 +191,9 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
   <header>
     <button class="ava" id="ava" aria-label="Посмотреть на Аврору"></button>
     <h1>Аврора</h1>
+    <button class="tb" id="bTheme" aria-label="Оформление">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.6-.8 1.6-1.6 0-.4-.2-.8-.4-1.1a1.6 1.6 0 0 1 1.2-2.7H16a5 5 0 0 0 5-5C21 6.4 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="14.5" cy="7" r="1"/></svg>
+    </button>
     <button class="tb" id="bSleep" aria-label="Таймер сна">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
       <span class="badge" id="sleepBadge" hidden></span>
@@ -310,8 +325,23 @@ const lines={
   hid:"Спрятала. Файл остался на телефоне, вернуть можно внизу списка.",
   unhid:"Вернула все скрытые треки.",
   deleted:"Удалила. Больше мы его не услышим.",
-  delFail:"Не удалила. Может, ты передумал?"
+  delFail:"Не удалила. Может, ты передумал?",
+  theme:{dawn:"Классика. Солнце встаёт вместе с песней.",sil:"Это я. Со спины, но узнаваемо.",
+         car:"Ночь, дождь, дрифт. Мой любимый вайб.",custom:"Твоё фото, мой эквалайзер. Договорились."},
+  bgPick:"Выбери фото в галерее, я положу эквалайзер поверх.",
+  palette:"Перекрасила полосы."
 };
+
+/* ===== Оформление: темы визуализатора и цвета полос =====
+   Хочешь новую тему: добавь её в THEMES и напиши функцию рисования, как drawSil/drawPhoto. */
+const THEMES=[['dawn','Рассвет'],['sil','Силуэт'],['car','Ночной дрифт'],['custom','Своё фото']];
+const PALETTES={neon:['Неон','#ff3b6b','#b84dff'],fluorite:['Флюорит','#5ae6f5','#8e9bff'],dawn:['Закат','#ffc070','#ff6f91']};
+const store={get(k,d){ try{ return localStorage.getItem(k)||d; }catch(e){ return d; } },
+             set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }};
+let theme=store.get('theme','dawn'), palette=store.get('palette','neon'), bgName=store.get('bg','');
+const IMG={sil:new Image(),car:new Image(),custom:new Image()};
+IMG.sil.src='sil.webp'; IMG.car.src='car.jpg';
+if(bgName) IMG.custom.src=HOST+'/custom/'+bgName;
 /* ===== Имя в подписи внизу ===== */
 const USER_NAME="Adonis";
 
@@ -357,6 +387,10 @@ window.fromAndroid={
   playlists(list){ pls=list; if(tab==='lists') renderList(); },
   saved(kind){ speak(kind==='fail'?lines.coverFail:lines.coverOk); },
   deleted(ok){ speak(ok?lines.deleted:lines.delFail); },
+  bgSaved(name){
+    bgName=name; store.set('bg',name); IMG.custom.src=HOST+'/custom/'+name;
+    setTheme('custom'); if(sheetOpen&&sheet.dataset.kind==='theme') openTheme();
+  },
   state(s){
     const was=st; st=s; stAt=performance.now();
     if(was.sleep&&!s.sleep&&was.playing&&!s.playing) speak(lines.sleepDone);
@@ -590,7 +624,7 @@ let sheetOpen=false, sheetClick=null;
 const sheet=$('sheet');
 function openSheet(html){
   sheet.innerHTML='<div class="grab"></div>'+html;
-  sheet.oninput=null; sheet.onchange=null; sheetClick=null;
+  sheet.oninput=null; sheet.onchange=null; sheetClick=null; sheet.dataset.kind='';
   sheet.classList.add('show'); $('scrim').classList.add('show'); sheetOpen=true;
 }
 function closeSheet(){
@@ -668,6 +702,35 @@ function openAddTo(trackId){
     }
   };
 }
+
+function setTheme(t){ theme=t; store.set('theme',t); speak(lines.theme[t]); }
+
+function openTheme(){
+  const thumb={dawn:'background-image:radial-gradient(circle at 50% 78%,#ffc070 0 16%,transparent 17%),linear-gradient(#2a1c4f,#b04f7a 70%,#1f1540 70%)',
+    sil:'background-image:url(sil.webp);background-color:#150c28',
+    car:'background-image:url(car.jpg)',
+    custom:bgName?'background-image:url('+HOST+'/custom/'+bgName+')':''};
+  const cards=THEMES.map(([k,name])=>{
+    const empty=k==='custom'&&!bgName;
+    return '<button class="thc'+(theme===k?' on':'')+(empty?' none':'')+'" data-theme="'+k+'"><i style="'+thumb[k]+'">'+(empty?PLUS:'')+'</i><span>'+name+'</span></button>';
+  }).join('');
+  const pals=Object.entries(PALETTES).map(([k,[n,a,b]])=>'<button class="chip'+(palette===k?' on':'')+'" data-pal="'+k+'"><span class="sw" style="background:linear-gradient(135deg,'+a+','+b+')"></span>'+n+'</button>').join('');
+  openSheet('<h3>Оформление</h3><div class="themes">'+cards+'</div>'+
+    '<p class="muted" style="margin:14px 0 8px">Цвет полос для «Ночного дрифта» и своего фото</p><div class="chips">'+pals+'</div>'+
+    (bgName?'<button class="btn ghost full" data-bgpick="1">Выбрать другое фото</button>':''));
+  sheet.dataset.kind='theme';
+  sheetClick=e=>{
+    const t=e.target.closest('[data-theme]'), p=e.target.closest('[data-pal]');
+    if(e.target.closest('[data-bgpick]')){ call('pickBackground'); speak(lines.bgPick); return; }
+    if(t){
+      const k=t.dataset.theme;
+      if(k==='custom'&&!bgName){ call('pickBackground'); speak(lines.bgPick); return; }
+      setTheme(k); openTheme();
+    }
+    if(p){ palette=p.dataset.pal; store.set('palette',palette); speak(lines.palette); openTheme(); }
+  };
+}
+$('bTheme').onclick=openTheme;
 
 function openSleep(){
   const status= st.sleep>0?'Усну через '+Math.ceil(st.sleep/60000)+' мин.'
@@ -763,6 +826,8 @@ function draw(ts){
   ava.style.transform='scale('+(1+k*.09).toFixed(3)+') rotate('+(Math.sin(t*2.2)*k*5).toFixed(2)+'deg)';
   ava.style.boxShadow='0 0 0 3px var(--bg), 0 0 '+(6+k*26).toFixed(1)+'px '+(k*5).toFixed(1)+'px rgba(255,122,138,'+(.25+k*.6).toFixed(2)+')';
 
+  if(theme!=='dawn'){ (theme==='sil'?drawSil:drawPhoto)(t); requestAnimationFrame(draw); return; }
+
   const sky=g.createLinearGradient(0,0,0,hy);
   sky.addColorStop(0,mix('#120d2a','#3b2a6b',p));
   sky.addColorStop(.6,mix('#2a1c4f','#b04f7a',p));
@@ -806,6 +871,56 @@ function draw(ts){
 
   requestAnimationFrame(draw);
 }
+/* Картинка на весь холст с обрезкой краёв, как background-size:cover */
+function drawCover(img){
+  const iw=img.naturalWidth, ih=img.naturalHeight; if(!iw||!img.complete) return false;
+  const s=Math.max(W/iw,H/ih), w=iw*s, h=ih*s;
+  g.drawImage(img,(W-w)/2,(H-h)/2,w,h); return true;
+}
+/* Полосы: два прохода, широкий полупрозрачный даёт свечение */
+function bars(fill,cx,base,maxH,mirror,minH){
+  const step=(W*.94/2)/N, bw=Math.max(2,step*.44);
+  for(let pass=0;pass<2;pass++){
+    g.globalAlpha=pass?0.95:0.22; g.fillStyle=fill;
+    const w=pass?bw:bw*2.4;
+    for(let k=0;k<N;k++){
+      const h=Math.max(minH,lv[k]*maxH);
+      for(const sg of [-1,1]){
+        const x=cx+sg*(k+.5)*step-w/2;
+        if(mirror) g.fillRect(x,base-h,w,h*2); else g.fillRect(x,base-h,w,h);
+      }
+    }
+  }
+  g.globalAlpha=1;
+}
+/* Тема «Силуэт»: полосы расходятся за спиной Авроры */
+function drawSil(t){
+  const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0b0716'); bg.addColorStop(1,'#1a0d2e');
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+  const gl=g.createRadialGradient(W*.49,H*.5,0,W*.49,H*.5,H*.75);
+  gl.addColorStop(0,'rgba(190,90,230,'+(.16+bassS*.45).toFixed(3)+')'); gl.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=gl; g.fillRect(0,0,W,H);
+  const hg=g.createLinearGradient(0,0,W,0);
+  hg.addColorStop(0,'#ff9a3c'); hg.addColorStop(.5,'#ff6f91'); hg.addColorStop(1,'#8a4dff');
+  bars(hg,W/2,H*.555,H*.4,true,H*.012);
+  drawCover(IMG.sil);
+}
+/* Темы с фото: полосы поднимаются снизу, как отражения на мокром асфальте */
+function drawPhoto(t){
+  const img=theme==='car'?IMG.car:IMG.custom;
+  if(!drawCover(img)){
+    g.fillStyle='#120a22'; g.fillRect(0,0,W,H);
+    g.fillStyle='#b4a3d6'; g.font='15px Manrope, sans-serif'; g.textAlign='center';
+    g.fillText('Выбери фото в «Оформлении»',W/2,H/2);
+  }
+  const sh=g.createLinearGradient(0,H*.4,0,H);
+  sh.addColorStop(0,'rgba(10,6,20,0)'); sh.addColorStop(1,'rgba(10,6,20,'+(.7-bassS*.2).toFixed(3)+')');
+  g.fillStyle=sh; g.fillRect(0,0,W,H);
+  const [,a,b]=PALETTES[palette]||PALETTES.neon;
+  const vg=g.createLinearGradient(0,H,0,H*.5); vg.addColorStop(0,a); vg.addColorStop(1,b);
+  bars(vg,W/2,H-4,H*.36,false,2);
+}
+
 requestAnimationFrame(draw);
 
 $('uname').textContent=USER_NAME;

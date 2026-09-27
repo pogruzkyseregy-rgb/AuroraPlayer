@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .addPathHandler("/art/") { path -> artResponse(path) }
+            .addPathHandler("/custom/", WebViewAssetLoader.InternalStoragePathHandler(this, Custom.dir(this)))
             .build()
 
         web = WebView(this).apply {
@@ -300,17 +301,28 @@ class MainActivity : ComponentActivity() {
                         BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = k })!!
                     }
                 }
-                val side = minOf(src.width, src.height)
-                val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-                val out = Bitmap.createScaledBitmap(sq, 512, 512, true)
-                val n = "${kind}_${key}_${System.currentTimeMillis()}.jpg"
-                File(Custom.dir(this), n).outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 88, it) }
-                n
+                if (kind == "bg") {
+                    // фон для эквалайзера: без обрезки, длинная сторона до 1600 пикселей
+                    val k = maxOf(1f, maxOf(src.width, src.height) / 1600f)
+                    val out = Bitmap.createScaledBitmap(src, (src.width / k).toInt(), (src.height / k).toInt(), true)
+                    val n = "bg_${System.currentTimeMillis()}.jpg"
+                    Custom.dir(this).listFiles()?.filter { it.name.startsWith("bg_") }?.forEach { it.delete() }
+                    File(Custom.dir(this), n).outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+                    n
+                } else {
+                    val side = minOf(src.width, src.height)
+                    val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+                    val out = Bitmap.createScaledBitmap(sq, 512, 512, true)
+                    val n = "${kind}_${key}_${System.currentTimeMillis()}.jpg"
+                    File(Custom.dir(this), n).outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                    n
+                }
             } catch (e: Exception) {
                 null
             }
             main.post {
                 if (name == null) { js("fromAndroid.saved('fail')"); return@post }
+                if (kind == "bg") { js("fromAndroid.bgSaved('$name')"); return@post }
                 Custom.setCover(this, kind, key, name)
                 afterEdit(if (kind == "t") listOf(key) else albumTracks(key))
                 js("fromAndroid.saved('cover')")
@@ -618,6 +630,10 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface fun editAlbum(albumId: String, name: String) {
             main.post { Custom.editAlbum(this@MainActivity, albumId, name); afterEdit(albumTracks(albumId)) }
+        }
+
+        @JavascriptInterface fun pickBackground() {
+            main.post { pickTarget = "bg" to ""; imagePicker.launch("image/*") }
         }
 
         @JavascriptInterface fun pickCover(kind: String, key: String) {
