@@ -22,6 +22,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -41,6 +42,8 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -147,6 +150,8 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(0xFF1A1433.toInt())
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // значки радиостанций часто лежат на http-адресах
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -407,6 +412,73 @@ class MainActivity : ComponentActivity() {
         js("fromAndroid.deleted(true)")
     }
 
+    // ---------- радио ----------
+    // Станции берём из открытого каталога Radio Browser (radio-browser.info).
+
+    private var radioArt: String? = null
+
+    /** Обложка радио для уведомления: копируем арт из assets в файл один раз. */
+    private fun radioArtPath(): String {
+        radioArt?.let { return it }
+        val f = File(Custom.dir(this), "radio_art.jpg")
+        if (!f.exists()) try {
+            assets.open("www/radio.jpg").use { i -> f.outputStream().use { i.copyTo(it) } }
+        } catch (_: Exception) {}
+        return f.absolutePath.also { radioArt = it }
+    }
+
+    /** q: параметры поиска, например "countrycode=RU&tag=rock" */
+    private fun radioSearch(q: String) {
+        Thread {
+            var out: String? = null
+            for (h in listOf("de1", "fi1", "de2", "nl1", "at1")) {
+                try {
+                    val u = URL("https://$h.api.radio-browser.info/json/stations/search?$q" +
+                        "&hidebroken=true&order=clickcount&reverse=true&limit=60")
+                    val c = (u.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 6000; readTimeout = 9000
+                        setRequestProperty("User-Agent", "fluorite_blue/2.8")
+                    }
+                    if (c.responseCode != 200) continue
+                    val arr = JSONArray(c.inputStream.bufferedReader().readText())
+                    val res = JSONArray()
+                    for (i in 0 until arr.length()) {
+                        val s = arr.getJSONObject(i)
+                        val url = s.optString("url_resolved").ifEmpty { s.optString("url") }
+                        if (url.isEmpty()) continue
+                        res.put(
+                            JSONObject().put("id", s.optString("stationuuid")).put("name", s.optString("name").trim())
+                                .put("url", url).put("fav", s.optString("favicon")).put("tags", s.optString("tags"))
+                                .put("country", s.optString("countrycode")).put("codec", s.optString("codec"))
+                                .put("br", s.optInt("bitrate"))
+                        )
+                    }
+                    out = res.toString()
+                    break
+                } catch (_: Exception) {
+                }
+            }
+            main.post { js("fromAndroid.radio(${out ?: "null"})") }
+        }.start()
+    }
+
+    /** Играем станцию; остальные станции из списка встают в очередь, «вперёд/назад» переключают их. */
+    private fun radioPlay(json: String, index: Int) {
+        val c = controller ?: return
+        val arr = JSONArray(json)
+        val art = radioArtPath()
+        val items = List(arr.length()) {
+            val s = arr.getJSONObject(it)
+            val name = s.optString("name")
+            Track("radio:" + s.getString("id"), s.getString("url"), name, name, "Радио", 0, 0, art).toMediaItem()
+        }
+        if (items.isEmpty()) return
+        c.setMediaItems(items, index.coerceIn(0, items.size - 1), 0)
+        setSource("radio")
+        c.prepare()
+        c.play()
+    }
+
     // ---------- очередь ----------
 
     private fun playQueue(idsJson: String, index: Int, source: String) {
@@ -477,6 +549,8 @@ class MainActivity : ComponentActivity() {
         } else {
             val ended = c.playbackState == Player.STATE_ENDED
             val m = c.mediaMetadata
+            o.put("station", c.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
+                .put("err", c.playerError != null)
             o.put("playing", c.playWhenReady && !ended)
                 .put("moving", c.isPlaying)
                 .put("ended", ended)
@@ -687,6 +761,10 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun hideTrack(id: String) { main.post { this@MainActivity.hideTrack(id) } }
         @JavascriptInterface fun unhideAll() { main.post { this@MainActivity.unhideAll() } }
         @JavascriptInterface fun deleteTrack(id: String) { main.post { this@MainActivity.deleteTrack(id) } }
+
+        // радио
+        @JavascriptInterface fun radioSearch(q: String) { main.post { this@MainActivity.radioSearch(q) } }
+        @JavascriptInterface fun radioPlay(json: String, index: Int) { main.post { this@MainActivity.radioPlay(json, index) } }
 
         // рекомендации
         @JavascriptInterface fun stats(): String = Stats.json(this@MainActivity)

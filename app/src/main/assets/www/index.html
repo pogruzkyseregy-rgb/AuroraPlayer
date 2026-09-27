@@ -149,6 +149,20 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 .th.liked{background:none}
 .th.liked img{border-radius:12px}
 
+/* --- радио --- */
+.tabic{width:20px; height:20px; border-radius:50%; object-fit:cover; vertical-align:-5px; margin-right:6px}
+.rhero{position:relative; aspect-ratio:16/7; border-radius:20px; overflow:hidden; margin-bottom:12px; background:#120a22}
+.rhero img{width:100%; height:100%; object-fit:cover; object-position:50% 30%; display:block}
+.rhero div{position:absolute; left:0; right:0; bottom:0; padding:14px 16px; display:flex; flex-direction:column;
+  background:linear-gradient(0deg,rgba(10,6,20,.92),rgba(10,6,20,0))}
+.rhero b{font-family:var(--display); font-weight:500; font-size:18px}
+.rhero span{font-size:13px; color:var(--muted)}
+.rchips{display:flex; gap:8px; overflow-x:auto; margin-bottom:12px; scrollbar-width:none}
+.rchips::-webkit-scrollbar{display:none}
+.rchips .chip{flex:none; padding:8px 12px}
+.sec2{margin:16px 4px 8px; color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase}
+.rb.fav{color:var(--fox)}
+
 /* --- оформление --- */
 .themes{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:6px}
 .thc{text-align:left}
@@ -260,6 +274,7 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
     <button class="tab on" id="tabLib">Треки<span id="libN"></span></button>
     <button class="tab" id="tabLists">Плейлисты</button>
     <button class="tab" id="tabRecs">Для тебя</button>
+    <button class="tab" id="tabRadio"><img class="tabic" src="radio.jpg" alt="">Радио</button>
   </nav>
 
   <div class="bar" id="libBar" hidden>
@@ -270,6 +285,13 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
     <button class="tb" id="bRescan" aria-label="Найти музыку заново">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
     </button>
+  </div>
+
+  <div class="bar" id="radioBar" hidden>
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="rq" type="text" placeholder="Название станции" autocomplete="off" enterkeyhint="search">
+    </label>
   </div>
 
   <div class="bar" id="plBar" hidden>
@@ -343,17 +365,24 @@ const lines={
   deleted:"Удалила. Больше мы его не услышим.",
   delFail:"Не удалила. Может, ты передумал?",
   theme:{dawn:"Классика. Солнце встаёт вместе с песней.",sil:"Это я. Со спины, но узнаваемо.",
+         wave:"Чистый звук, ничего лишнего.",hud:"Система наведения на бит активирована.",
          car:"Ночь, дождь, дрифт. Мой любимый вайб.",custom:"Твоё фото, мой эквалайзер. Договорились."},
   bgPick:"Выбери фото в галерее, я положу эквалайзер поверх.",
   palette:"Перекрасила полосы.",
   liked:["Добавила в «Нравится». Хороший вкус.","Запомнила. Теперь это наше.","В «Нравится». Буду иметь в виду."],
   unliked:"Убрала из «Нравится».",
-  shuffleGo:"Перемешала и включила случайный. Посмотрим, что выпало."
+  shuffleGo:"Перемешала и включила случайный. Посмотрим, что выпало.",
+  radioOn:["Ловлю волну…","Эфир пошёл.","Слушаем, что там в мире играет."],
+  radioHi:"Настраиваю приёмник. Тысячи станций, выбирай.",
+  radioErr:"Эта станция сейчас молчит. Попробуй другую.",
+  radioFail:"Не могу достучаться до каталога станций. Проверь интернет.",
+  radioFav:"Сохранила станцию в избранное.",
+  radioUnfav:"Убрала станцию из избранного."
 };
 
 /* ===== Оформление: темы визуализатора и цвета полос =====
    Хочешь новую тему: добавь её в THEMES и напиши функцию рисования, как drawSil/drawPhoto. */
-const THEMES=[['dawn','Рассвет'],['sil','Силуэт'],['car','Ночной дрифт'],['custom','Своё фото']];
+const THEMES=[['dawn','Рассвет'],['sil','Силуэт'],['wave','Звуковая волна'],['hud','HUD'],['car','Ночной дрифт'],['custom','Своё фото']];
 const PALETTES={neon:['Неон','#ff3b6b','#b84dff'],fluorite:['Флюорит','#5ae6f5','#8e9bff'],dawn:['Закат','#ffc070','#ff6f91']};
 const store={get(k,d){ try{ return localStorage.getItem(k)||d; }catch(e){ return d; } },
              set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }};
@@ -428,30 +457,34 @@ window.fromAndroid={
   playlists(list){ pls=list; renderList(); paintLike($('nowLike'),isLiked(st.currentId),false); },
   saved(kind){ speak(kind==='fail'?lines.coverFail:lines.coverOk); },
   deleted(ok){ speak(ok?lines.deleted:lines.delFail); },
+  radio(list){ radio.loading=false; radio.failed=list===null; radio.list=list||[]; if(radio.failed) speak(lines.radioFail); if(tab==='radio') renderList(); },
   bgSaved(name){
     bgName=name; store.set('bg',name); IMG.custom.src=HOST+'/custom/'+name;
     setTheme('custom'); if(sheetOpen&&sheet.dataset.kind==='theme') openTheme();
   },
   state(s){
     const was=st; st=s; stAt=performance.now();
-    if(was.sleep&&!s.sleep&&was.playing&&!s.playing) speak(lines.sleepDone);
-    else if(s.playing&&(!was.playing||s.currentId!==was.currentId)) speak(pick(lines.play));
+    const radioNow=(s.currentId||'').startsWith('radio:');
+    if(s.err&&!was.err) speak(radioNow?lines.radioErr:'Не получается включить этот трек.');
+    else if(was.sleep&&!s.sleep&&was.playing&&!s.playing) speak(lines.sleepDone);
+    else if(s.playing&&(!was.playing||s.currentId!==was.currentId)) speak(pick(radioNow?lines.radioOn:lines.play));
     else if(s.ended&&!was.ended) speak(lines.end);
     else if(!s.playing&&was.playing&&!s.ended&&s.currentId) speak(pick(lines.pause));
     $('icoPlay').style.display=s.playing?'none':''; $('icoPause').style.display=s.playing?'':'none';
     $('shuffle').classList.toggle('on',s.shuffle);
     $('repeat').classList.toggle('on',s.repeat!=='off'); $('one').hidden=s.repeat!=='one';
-    $('dur').textContent=fmt(s.dur);
+    $('dur').textContent=radioNow?'эфир':fmt(s.dur); pos.disabled=radioNow;
     const b=$('sleepBadge');
     b.hidden=!s.sleep; b.textContent=s.sleep===-1?'♪':Math.ceil(s.sleep/60000);
     $('bSleep').classList.toggle('on',!!s.sleep);
-    if(was.currentId!==s.currentId||was.playing!==s.playing||was.title!==s.title){ updateNow(); renderList(); }
+    if(was.currentId!==s.currentId||was.playing!==s.playing||was.title!==s.title){ updateNow(); if(!(tab==='radio'&&was.currentId===s.currentId&&was.playing===s.playing)) renderList(); }
   },
   back(){
     if(artOpen){ closeArt(); return true; }
     if(sheetOpen){ closeSheet(); return true; }
     if(tab==='lists'&&openPl){ openPl=null; renderList(); return true; }
     if(tab==='lib'&&query){ $('q').value=''; query=''; renderList(); return true; }
+    if(tab==='radio'&&radio.q){ $('rq').value=''; radio.q=''; radioLoad(); return true; }
     return false;
   }
 };
@@ -459,6 +492,13 @@ window.fromAndroid={
 /* ===== Что сейчас играет ===== */
 function updateNow(){
   const t=libMap[st.currentId];
+  if((st.currentId||'').startsWith('radio:')){
+    const name=st.station||st.title, song=st.title&&st.title!==name?st.title:'';
+    $('title').textContent=song||name; $('artist').textContent=song?'📻 '+name:'📻 Радио в эфире';
+    $('nowLike').hidden=$('nowMenu').hidden=true;
+    if(shownId!==st.currentId){ shownId=st.currentId; $('cover').innerHTML='<img alt="" src="radio.jpg">'; }
+    return;
+  }
   const title=(t&&t.title)||st.title;
   $('title').textContent=title||'Ничего не играет';
   $('artist').textContent=title?((t&&t.artist)||st.artist||''):'Выбери трек из списка';
@@ -548,29 +588,83 @@ function recsHtml(){
   return h;
 }
 
+/* ===== Радио =====
+   Станции из открытого каталога Radio Browser. Избранное хранится на телефоне. */
+const GENRES=[['','Популярное'],['pop','Поп'],['rock','Рок'],['electronic','Электроника'],['chillout','Chill'],
+  ['lofi','Lo-Fi'],['jazz','Джаз'],['hip hop','Хип-хоп'],['classical','Классика'],['anime','Аниме']];
+const STAR=f=>'<svg viewBox="0 0 24 24" fill="'+(f?'currentColor':'none')+'" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>';
+const radio={list:null,loading:false,failed:false,q:'',tag:'',world:false,favs:[]};
+try{ radio.favs=JSON.parse(store.get('radioFavs','[]')); }catch(e){}
+const isFav=id=>radio.favs.some(x=>x.id===id);
+function radioLoad(){
+  if(!A){ radio.list=[]; return renderList(); }
+  const p=[]; if(!radio.world) p.push('countrycode=RU');
+  if(radio.q) p.push('name='+encodeURIComponent(radio.q));
+  if(radio.tag) p.push('tag='+encodeURIComponent(radio.tag));
+  radio.loading=true; renderList(); call('radioSearch',p.join('&')||'limit=60');
+}
+function stationRow(s,i,src){
+  const cur=st.currentId==='radio:'+s.id, f=isFav(s.id);
+  const meta=[s.country,(s.tags||'').split(',').filter(Boolean).slice(0,2).join(', '),s.br?s.br+' kbps':''].filter(Boolean).join(' · ');
+  return '<li class="'+(cur?'cur':'')+'"><button class="pick" data-rplay="'+i+'" data-rsrc="'+src+'"><span class="th">'+
+    '<img loading="lazy" alt="" src="'+esc(s.fav||'radio.jpg')+'" onerror="this.onerror=null;this.src=\'radio.jpg\'">'+
+    (cur&&st.playing?'<span class="eqi"><i></i><i></i><i></i></span>':'')+
+    '</span><span class="t"><div>'+esc(s.name)+'</div><div class="a">'+esc(meta||'радио')+'</div></span></button>'+
+    '<button class="rb'+(f?' fav':'')+'" data-rfav="'+i+'" data-rsrc="'+src+'" aria-label="Избранное">'+STAR(f)+'</button></li>';
+}
+function radioHtml(){
+  if(radio.list===null&&!radio.loading) setTimeout(radioLoad,0);
+  let h='<div class="rhero"><img src="radio.jpg" alt=""><div><b>Радио Авроры</b><span>Тысячи станций со всего мира. Темы и эквалайзер работают и тут.</span></div></div>';
+  h+='<div class="rchips"><button class="chip on" data-world="1">'+(radio.world?'🌍 Весь мир':'🇷🇺 Россия')+'</button>'+
+    GENRES.map(([k,n])=>'<button class="chip'+(radio.tag===k?' on':'')+'" data-genre="'+esc(k)+'">'+n+'</button>').join('')+'</div>';
+  if(radio.favs.length&&!radio.q) h+='<div class="sec2">Избранное</div><ol>'+radio.favs.map((s,i)=>stationRow(s,i,'fav')).join('')+'</ol>';
+  if(radio.loading) return h+card('Настраиваю приёмник…');
+  if(radio.failed) return h+card(lines.radioFail+'<br><button class="btn" id="rRetry">Ещё раз</button>');
+  if(!radio.list||!radio.list.length) return h+card('Станций не нашлось. Попробуй другое название или жанр.');
+  return h+'<div class="sec2">'+(radio.q?'Найдено':'Станции')+'</div><ol>'+radio.list.map((s,i)=>stationRow(s,i,'res')).join('')+'</ol>';
+}
+
 function renderList(){
   if(drag) return;
   const p=openPl&&pls.find(x=>x.id===openPl);
   if(openPl&&!p&&pls.length) openPl=null;
   $('tabLib').classList.toggle('on',tab==='lib'); $('tabLists').classList.toggle('on',tab==='lists'); $('tabRecs').classList.toggle('on',tab==='recs');
+  $('tabRadio').classList.toggle('on',tab==='radio'); $('radioBar').hidden=tab!=='radio';
   $('libBar').hidden=!(tab==='lib'&&perm===true&&(lib.length||hiddenN));
   $('plBar').hidden=!(tab==='lists'&&p);
   $('plEdit').hidden=$('plDel').hidden=!!(p&&p.id===LIKED);
-  $('list').innerHTML= tab==='lib'?libHtml() : tab==='recs'?recsHtml() : p?plHtml(p) : openPl?card('…') : listsHtml();
+  $('list').innerHTML= tab==='lib'?libHtml() : tab==='recs'?recsHtml() : tab==='radio'?radioHtml() : p?plHtml(p) : openPl?card('…') : listsHtml();
 }
 
 $('tabLib').onclick=()=>{ tab='lib'; renderList(); };
 $('tabLists').onclick=()=>{ if(tab==='lists') openPl=null; tab='lists'; renderList(); };
 $('tabRecs').onclick=()=>{ if(tab!=='recs') speak(pick(lines.recs)); tab='recs'; renderList(); };
+$('tabRadio').onclick=()=>{ if(tab!=='radio') speak(lines.radioHi); tab='radio'; renderList(); };
+let rTimer=0;
+$('rq').addEventListener('input',e=>{ clearTimeout(rTimer); rTimer=setTimeout(()=>{ radio.q=e.target.value.trim(); radioLoad(); },500); });
 let qTimer=0;
 $('q').addEventListener('input',e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{ query=e.target.value.trim(); renderList(); },150); });
 $('bRescan').onclick=()=>call('rescan');
 
 $('list').addEventListener('click',e=>{
-  const el=e.target.closest('[data-like],[data-play],[data-menu],[data-rm],[data-open],[data-recplay],#askPerm,#newPl,#unhide');
+  const el=e.target.closest('[data-like],[data-play],[data-menu],[data-rm],[data-open],[data-recplay],[data-rplay],[data-rfav],[data-world],[data-genre],#askPerm,#newPl,#unhide,#rRetry');
   if(!el) return;
   if(el.dataset.like) return toggleLike(el.dataset.like);
   if(el.id==='unhide'){ call('unhideAll'); speak(lines.unhid); return; }
+  if(el.id==='rRetry') return radioLoad();
+  if(el.dataset.world){ radio.world=!radio.world; return radioLoad(); }
+  if(el.dataset.genre!==undefined){ radio.tag=el.dataset.genre; return radioLoad(); }
+  if(el.dataset.rplay!==undefined||el.dataset.rfav!==undefined){
+    const src=el.dataset.rsrc==='fav'?radio.favs:(radio.list||[]);
+    const i=+(el.dataset.rplay!==undefined?el.dataset.rplay:el.dataset.rfav), s=src[i]; if(!s) return;
+    if(el.dataset.rfav!==undefined){
+      if(isFav(s.id)){ radio.favs=radio.favs.filter(x=>x.id!==s.id); speak(lines.radioUnfav); }
+      else { radio.favs.unshift(s); speak(lines.radioFav); }
+      store.set('radioFavs',JSON.stringify(radio.favs)); return renderList();
+    }
+    if(st.currentId==='radio:'+s.id) return call('toggle');
+    return call('radioPlay',JSON.stringify(src.map(x=>({id:x.id,name:x.name,url:x.url}))),i);
+  }
   if(el.id==='askPerm') return call('askPermission');
   if(el.id==='newPl') return openName('Новый плейлист','',n=>{ openPl=call('newPlaylist',n); speak(lines.plNew(esc(n))); renderList(); });
   if(el.dataset.open) { openPl=el.dataset.open; window.scrollTo({top:$('list').offsetTop-80,behavior:'smooth'}); return renderList(); }
@@ -756,6 +850,8 @@ function openTheme(){
   const thumb={dawn:'background-image:radial-gradient(circle at 50% 78%,#ffc070 0 16%,transparent 17%),linear-gradient(#2a1c4f,#b04f7a 70%,#1f1540 70%)',
     sil:'background-image:url(sil.webp);background-color:#150c28',
     car:'background-image:url(car.jpg)',
+    wave:'background-image:url(th-wave.png)',
+    hud:'background-image:url(th-hud.png)',
     custom:bgName?'background-image:url('+HOST+'/custom/'+bgName+')':''};
   const cards=THEMES.map(([k,name])=>{
     const empty=k==='custom'&&!bgName;
@@ -763,7 +859,7 @@ function openTheme(){
   }).join('');
   const pals=Object.entries(PALETTES).map(([k,[n,a,b]])=>'<button class="chip'+(palette===k?' on':'')+'" data-pal="'+k+'"><span class="sw" style="background:linear-gradient(135deg,'+a+','+b+')"></span>'+n+'</button>').join('');
   openSheet('<h3>Оформление</h3><div class="themes">'+cards+'</div>'+
-    '<p class="muted" style="margin:14px 0 8px">Цвет полос для «Ночного дрифта» и своего фото</p><div class="chips">'+pals+'</div>'+
+    '<p class="muted" style="margin:14px 0 8px">Цвет для «Ночного дрифта», своего фото и HUD</p><div class="chips">'+pals+'</div>'+
     (bgName?'<button class="btn ghost full" data-bgpick="1">Выбрать другое фото</button>':''));
   sheet.dataset.kind='theme';
   sheetClick=e=>{
@@ -883,7 +979,7 @@ function draw(ts){
   ava.style.transform='scale('+(1+k*.09).toFixed(3)+') rotate('+(Math.sin(t*2.2)*k*5).toFixed(2)+'deg)';
   ava.style.boxShadow='0 0 0 3px var(--bg), 0 0 '+(6+k*26).toFixed(1)+'px '+(k*5).toFixed(1)+'px rgba(255,122,138,'+(.25+k*.6).toFixed(2)+')';
 
-  if(theme!=='dawn'){ (theme==='sil'?drawSil:drawPhoto)(t); requestAnimationFrame(draw); return; }
+  if(theme!=='dawn'){ ({sil:drawSil,wave:drawWave,hud:drawHud}[theme]||drawPhoto)(t); requestAnimationFrame(draw); return; }
 
   const sky=g.createLinearGradient(0,0,0,hy);
   sky.addColorStop(0,mix('#120d2a','#3b2a6b',p));
@@ -976,6 +1072,61 @@ function drawPhoto(t){
   const [,a,b]=PALETTES[palette]||PALETTES.neon;
   const vg=g.createLinearGradient(0,H,0,H*.5); vg.addColorStop(0,a); vg.addColorStop(1,b);
   bars(vg,W/2,H-4,H*.36,false,2);
+}
+
+/* Тема «Звуковая волна»: точечные пики над горизонтом и отражение из штрихов */
+function drawWave(t){
+  g.fillStyle='#050507'; g.fillRect(0,0,W,H);
+  const M=64, my=H*.58, gap=W/(M+6), dot=Math.max(1.2,gap*.3), x0=(W-gap*(M-1))/2;
+  g.fillStyle='#f4f2ff';
+  for(let i=0;i<M;i++){
+    const c=Math.abs(i-(M-1)/2)/((M-1)/2), f=c*(N-1), k=Math.floor(f), fr=f-k;
+    let v=lv[k]*(1-fr)+lv[Math.min(N-1,k+1)]*fr;
+    v*=0.72+0.28*Math.sin(i*12.9898);                 // неровность, как у живого звука
+    const h=Math.max(2,v*H*.52), x=x0+i*gap;
+    for(let y=0;y<h;y+=3){ g.globalAlpha=0.3+0.7*(1-y/h); g.fillRect(x-dot/2,my-y-dot,dot,dot); }
+    const rh=h*.55;
+    for(let y=5;y<rh;y+=5){ g.globalAlpha=0.85*(1-y/rh); g.fillRect(x-gap/2+.5,my+y,gap-1,1.3); }
+  }
+  g.globalAlpha=.55; g.fillRect(0,my,W,1); g.globalAlpha=1;
+}
+/* Тема «HUD»: кольца с делениями, радиальный спектр, прицел и дуга прогресса */
+function drawHud(t){
+  g.fillStyle='#040407'; g.fillRect(0,0,W,H);
+  g.fillStyle='rgba(200,60,80,.28)';
+  for(let x=20;x<W;x+=40) for(let y=20;y<H;y+=40){ g.fillRect(x-3,y,7,1); g.fillRect(x,y-3,1,7); }
+  const cx=W/2, cy=H/2, R=Math.min(W,H)*.27, [,acc]=PALETTES[palette]||PALETTES.neon, L='rgba(236,236,255,.85)';
+  g.strokeStyle=L; g.lineWidth=1;
+  const rot=t*.15;
+  g.beginPath();
+  for(let i=0;i<120;i++){
+    const a=rot+i*Math.PI/60, r1=R*1.42, r2=r1+(i%10?4:9);
+    g.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1); g.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);
+  }
+  g.stroke();
+  g.lineWidth=3;
+  for(let q=0;q<4;q++){ const s0=-t*.3+q*Math.PI/2; g.beginPath(); g.arc(cx,cy,R*1.62,s0,s0+.45); g.stroke(); }
+  const p0=st.dur>0?curPos()/st.dur:0;
+  g.lineWidth=2; g.strokeStyle='rgba(236,236,255,.16)'; g.beginPath(); g.arc(cx,cy,R*1.25,0,Math.PI*2); g.stroke();
+  if(p0>0){ g.strokeStyle=acc; g.beginPath(); g.arc(cx,cy,R*1.25,-Math.PI/2,-Math.PI/2+p0*Math.PI*2); g.stroke(); }
+  g.strokeStyle=L; g.lineWidth=2; g.beginPath();
+  const M=72;
+  for(let i=0;i<M;i++){
+    const a=-Math.PI/2+i*Math.PI*2/M, fr=(i<=M/2?i:M-i)/(M/2), v=lv[Math.min(N-1,Math.floor(fr*(N-1)))];
+    const r1=R*.98, r2=r1-2-v*R*.5;                   // полосы смотрят внутрь, к прицелу
+    g.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1); g.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);
+  }
+  g.stroke();
+  g.lineWidth=1;
+  g.beginPath(); g.arc(cx,cy,R*.3*(1+bassS*.3),0,Math.PI*2); g.stroke();
+  g.beginPath(); g.arc(cx,cy,R*.12,0,Math.PI*2); g.stroke();
+  g.beginPath();
+  g.moveTo(cx-R*.95,cy); g.lineTo(cx-R*.4,cy); g.moveTo(cx+R*.4,cy); g.lineTo(cx+R*.95,cy);
+  g.moveTo(cx,cy-R*.95); g.lineTo(cx,cy-R*.4); g.moveTo(cx,cy+R*.4); g.lineTo(cx,cy+R*.95);
+  g.stroke();
+  g.fillStyle='rgba(236,236,255,.7)'; g.font='10px ui-monospace,"Roboto Mono",monospace';
+  g.textAlign='left'; g.fillText('FLUORITE_BLUE // AURORA',14,20); g.fillText('SIGNAL '+(st.moving?'LOCKED':'STANDBY'),14,H-12);
+  g.textAlign='right'; g.fillText(st.dur>0?fmt(curPos()):'LIVE',W-14,20); g.fillText('BASS '+String(Math.round(bassS*100)).padStart(3,'0'),W-14,H-12);
 }
 
 requestAnimationFrame(draw);

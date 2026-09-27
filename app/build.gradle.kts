@@ -11,8 +11,8 @@ android {
         applicationId = "ru.avrora.player"
         minSdk = 26          // Android 8.0 и новее
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.7"
+        versionCode = 10
+        versionName = "2.8"
     }
 
     // Постоянный ключ подписи: благодаря ему новые версии
@@ -50,5 +50,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1") // радиостанции в формате HLS
     implementation("com.google.guava:guava:33.2.1-android")
 }
