@@ -144,6 +144,8 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 @keyframes pop{45%{transform:scale(1.35)}}
 .now .lk{width:52px; height:52px}
 .now .lk img{width:42px; height:42px; border-radius:11px}
+.now .rb{margin-right:-6px}
+.now .rb svg{width:24px; height:24px}
 .th.liked{background:none}
 .th.liked img{border-radius:12px}
 
@@ -225,6 +227,7 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
       <div class="artist" id="artist">Выбери трек из списка</div>
     </div>
     <button class="lk" id="nowLike" aria-label="Нравится" hidden><img alt="" src="like-off.webp"></button>
+    <button class="rb" id="nowMenu" aria-label="Действия с треком" hidden></button>
   </div>
 
   <div class="seek">
@@ -459,7 +462,7 @@ function updateNow(){
   const title=(t&&t.title)||st.title;
   $('title').textContent=title||'Ничего не играет';
   $('artist').textContent=title?((t&&t.artist)||st.artist||''):'Выбери трек из списка';
-  $('nowLike').hidden=!(t&&st.currentId);
+  $('nowLike').hidden=$('nowMenu').hidden=!(t&&st.currentId);
   if(t) paintLike($('nowLike'),isLiked(st.currentId),false);
   const key=st.currentId+'|'+(t?t.av:0);
   if(shownId!==key){
@@ -776,6 +779,8 @@ function openTheme(){
 }
 $('bTheme').onclick=openTheme;
 $('nowLike').onclick=()=>toggleLike(st.currentId);
+$('nowMenu').innerHTML=DOTS;
+$('nowMenu').onclick=()=>{ if(st.currentId) openTrackMenu(st.currentId); };
 
 function openSleep(){
   const status= st.sleep>0?'Усну через '+Math.ceil(st.sleep/60000)+' мин.'
