@@ -174,6 +174,8 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 .thc span{display:block; margin-top:6px; font-size:14px; font-weight:600}
 .thc.on span{color:var(--fox)}
 .sw{display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:6px; vertical-align:-2px}
+.eqc i{background-image:repeating-linear-gradient(90deg,var(--fox) 0 5px,transparent 5px 11px),linear-gradient(#1c1338,#1c1338)}
+.themes+.themes{margin-top:2px}
 
 /* --- нижние окна --- */
 .scrim{position:fixed; inset:0; z-index:20; background:rgba(10,6,24,.6); opacity:0; pointer-events:none; transition:opacity .2s}
@@ -365,8 +367,8 @@ const lines={
   deleted:"Удалила. Больше мы его не услышим.",
   delFail:"Не удалила. Может, ты передумал?",
   theme:{dawn:"Классика. Солнце встаёт вместе с песней.",sil:"Это я. Со спины, но узнаваемо.",
-         wave:"Чистый звук, ничего лишнего.",hud:"Система наведения на бит активирована.",
          car:"Ночь, дождь, дрифт. Мой любимый вайб.",custom:"Твоё фото, мой эквалайзер. Договорились."},
+  viz:{classic:"Обычные полосы. Надёжно.",wave:"Чистый звук, ничего лишнего.",hud:"Система наведения на бит активирована."},
   bgPick:"Выбери фото в галерее, я положу эквалайзер поверх.",
   palette:"Перекрасила полосы.",
   liked:["Добавила в «Нравится». Хороший вкус.","Запомнила. Теперь это наше.","В «Нравится». Буду иметь в виду."],
@@ -380,13 +382,16 @@ const lines={
   radioUnfav:"Убрала станцию из избранного."
 };
 
-/* ===== Оформление: темы визуализатора и цвета полос =====
-   Хочешь новую тему: добавь её в THEMES и напиши функцию рисования, как drawSil/drawPhoto. */
-const THEMES=[['dawn','Рассвет'],['sil','Силуэт'],['wave','Звуковая волна'],['hud','HUD'],['car','Ночной дрифт'],['custom','Своё фото']];
+/* ===== Оформление: фон и эквалайзер выбираются отдельно и сочетаются =====
+   Новый фон: добавь в BGS и функцию drawBg<Имя>. Новый эквалайзер: добавь в EQS и функцию eq<Имя>. */
+const BGS=[['dawn','Рассвет'],['sil','Силуэт'],['car','Ночной дрифт'],['custom','Своё фото']];
+const EQS=[['classic','Классика'],['wave','Волна'],['hud','HUD']];
 const PALETTES={neon:['Неон','#ff3b6b','#b84dff'],fluorite:['Флюорит','#5ae6f5','#8e9bff'],dawn:['Закат','#ffc070','#ff6f91']};
 const store={get(k,d){ try{ return localStorage.getItem(k)||d; }catch(e){ return d; } },
              set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }};
-let theme=store.get('theme','dawn'), palette=store.get('palette','neon'), bgName=store.get('bg','');
+let bg=store.get('theme','dawn'), eqStyle=store.get('eq','classic'), palette=store.get('palette','neon'), bgName=store.get('bg','');
+// апгрейд со старых версий, где «Волна» и «HUD» были самостоятельными темами
+if(bg==='wave'||bg==='hud'){ eqStyle=bg; bg='dawn'; store.set('theme',bg); store.set('eq',eqStyle); }
 const IMG={sil:new Image(),car:new Image(),custom:new Image()};
 IMG.sil.src='sil.webp'; IMG.car.src='car.jpg';
 if(bgName) IMG.custom.src=HOST+'/custom/'+bgName;
@@ -460,7 +465,7 @@ window.fromAndroid={
   radio(list){ radio.loading=false; radio.failed=list===null; radio.list=list||[]; if(radio.failed) speak(lines.radioFail); if(tab==='radio') renderList(); },
   bgSaved(name){
     bgName=name; store.set('bg',name); IMG.custom.src=HOST+'/custom/'+name;
-    setTheme('custom'); if(sheetOpen&&sheet.dataset.kind==='theme') openTheme();
+    setBg('custom'); if(sheetOpen&&sheet.dataset.kind==='theme') openTheme();
   },
   state(s){
     const was=st; st=s; stAt=performance.now();
@@ -844,32 +849,38 @@ function openAddTo(trackId){
   };
 }
 
-function setTheme(t){ theme=t; store.set('theme',t); speak(lines.theme[t]); }
+function setBg(k){ bg=k; store.set('theme',k); speak(lines.theme[k]); }
+function setEq(k){ eqStyle=k; store.set('eq',k); speak(lines.viz[k]); }
 
 function openTheme(){
-  const thumb={dawn:'background-image:radial-gradient(circle at 50% 78%,#ffc070 0 16%,transparent 17%),linear-gradient(#2a1c4f,#b04f7a 70%,#1f1540 70%)',
+  const bgThumb={dawn:'background-image:radial-gradient(circle at 50% 78%,#ffc070 0 16%,transparent 17%),linear-gradient(#2a1c4f,#b04f7a 70%,#1f1540 70%)',
     sil:'background-image:url(sil.webp);background-color:#150c28',
     car:'background-image:url(car.jpg)',
-    wave:'background-image:url(th-wave.png)',
-    hud:'background-image:url(th-hud.png)',
     custom:bgName?'background-image:url('+HOST+'/custom/'+bgName+')':''};
-  const cards=THEMES.map(([k,name])=>{
+  const eqThumb={classic:'',wave:'background-image:url(th-wave.png)',hud:'background-image:url(th-hud.png)'};
+  const bgCards=BGS.map(([k,name])=>{
     const empty=k==='custom'&&!bgName;
-    return '<button class="thc'+(theme===k?' on':'')+(empty?' none':'')+'" data-theme="'+k+'"><i style="'+thumb[k]+'">'+(empty?PLUS:'')+'</i><span>'+name+'</span></button>';
+    return '<button class="thc'+(bg===k?' on':'')+(empty?' none':'')+'" data-bg="'+k+'"><i style="'+bgThumb[k]+'">'+(empty?PLUS:'')+'</i><span>'+name+'</span></button>';
   }).join('');
+  const eqCards=EQS.map(([k,name])=>
+    '<button class="thc'+(eqStyle===k?' on':'')+(k==='classic'?' eqc':'')+'" data-eq="'+k+'"><i style="'+eqThumb[k]+'"></i><span>'+name+'</span></button>'
+  ).join('');
   const pals=Object.entries(PALETTES).map(([k,[n,a,b]])=>'<button class="chip'+(palette===k?' on':'')+'" data-pal="'+k+'"><span class="sw" style="background:linear-gradient(135deg,'+a+','+b+')"></span>'+n+'</button>').join('');
-  openSheet('<h3>Оформление</h3><div class="themes">'+cards+'</div>'+
-    '<p class="muted" style="margin:14px 0 8px">Цвет для «Ночного дрифта», своего фото и HUD</p><div class="chips">'+pals+'</div>'+
+  openSheet('<h3>Оформление</h3>'+
+    '<p class="muted" style="margin:0 0 8px">Фон</p><div class="themes">'+bgCards+'</div>'+
+    '<p class="muted" style="margin:14px 0 8px">Эквалайзер — ложится поверх любого фона</p><div class="themes">'+eqCards+'</div>'+
+    '<p class="muted" style="margin:14px 0 8px">Цвет полос</p><div class="chips">'+pals+'</div>'+
     (bgName?'<button class="btn ghost full" data-bgpick="1">Выбрать другое фото</button>':''));
   sheet.dataset.kind='theme';
   sheetClick=e=>{
-    const t=e.target.closest('[data-theme]'), p=e.target.closest('[data-pal]');
+    const tb=e.target.closest('[data-bg]'), te=e.target.closest('[data-eq]'), p=e.target.closest('[data-pal]');
     if(e.target.closest('[data-bgpick]')){ call('pickBackground'); speak(lines.bgPick); return; }
-    if(t){
-      const k=t.dataset.theme;
+    if(tb){
+      const k=tb.dataset.bg;
       if(k==='custom'&&!bgName){ call('pickBackground'); speak(lines.bgPick); return; }
-      setTheme(k); openTheme();
+      setBg(k); openTheme();
     }
+    if(te){ setEq(te.dataset.eq); openTheme(); }
     if(p){ palette=p.dataset.pal; store.set('palette',palette); speak(lines.palette); openTheme(); }
   };
 }
@@ -979,8 +990,16 @@ function draw(ts){
   ava.style.transform='scale('+(1+k*.09).toFixed(3)+') rotate('+(Math.sin(t*2.2)*k*5).toFixed(2)+'deg)';
   ava.style.boxShadow='0 0 0 3px var(--bg), 0 0 '+(6+k*26).toFixed(1)+'px '+(k*5).toFixed(1)+'px rgba(255,122,138,'+(.25+k*.6).toFixed(2)+')';
 
-  if(theme!=='dawn'){ ({sil:drawSil,wave:drawWave,hud:drawHud}[theme]||drawPhoto)(t); requestAnimationFrame(draw); return; }
+  // 1) фон — 2) эквалайзер поверх — 3) силуэт Авроры (у него прозрачный фон, поэтому рисуется последним
+  const bgFn={dawn:drawBgDawn,sil:drawBgSil,car:()=>drawBgPhoto(IMG.car),custom:()=>drawBgPhoto(IMG.custom)}[bg]||drawBgDawn;
+  bgFn(p,hy,cx,t);
+  ({classic:eqClassic,wave:eqWave,hud:eqHud}[eqStyle]||eqClassic)(p,hy,cx,t);
+  if(bg==='sil') drawCover(IMG.sil);
 
+  requestAnimationFrame(draw);
+}
+/* ===== Фоны: рисуют только задник, без полос эквалайзера ===== */
+function drawBgDawn(p,hy,cx,t){
   const sky=g.createLinearGradient(0,0,0,hy);
   sky.addColorStop(0,mix('#120d2a','#3b2a6b',p));
   sky.addColorStop(.6,mix('#2a1c4f','#b04f7a',p));
@@ -1006,23 +1025,29 @@ function draw(ts){
   g.moveTo(cx+ex+ew*.55,sy-R*.72); g.lineTo(cx+ex-ew*.1,sy-R-eh); g.lineTo(cx+ex-ew*.95,sy-R*.92); g.closePath();
   g.fill();
 
-  const step=(W*.94/2)/N, bw=Math.max(2,step*.46);
-  const bar=g.createLinearGradient(0,hy,0,hy-hy*.6);
-  bar.addColorStop(0,'rgba(255,190,120,.95)'); bar.addColorStop(1,'rgba(255,110,150,0)');
-  g.fillStyle=bar;
-  for(let i=0;i<N;i++){ const h=Math.max(1.5,lv[i]*hy*.58);
-    for(const sg of [-1,1]) g.fillRect(cx+sg*(i+.5)*step-bw/2,hy-h,bw,h); }
-
   const ground=g.createLinearGradient(0,hy,0,H);
   ground.addColorStop(0,mix('#1f1540','#3a2352',p)); ground.addColorStop(1,'#120d26');
   g.fillStyle=ground; g.fillRect(0,hy,W,H-hy);
-  g.fillStyle='rgba(255,160,120,.22)';
-  for(let i=0;i<N;i++){ const h=lv[i]*hy*.2; for(const sg of [-1,1]) g.fillRect(cx+sg*(i+.5)*step-bw/2,hy+2,bw,h); }
   g.fillStyle='rgba(255,190,130,'+(.25+p*.4)+')';
   for(let j=0;j<5;j++){ const w=R*(1.6-j*.26)*(1+p); g.fillRect(cx-w/2,hy+6+j*7,w,2); }
   g.fillStyle='rgba(255,200,150,'+(.35+p*.4)+')'; g.fillRect(0,hy,W,1);
-
-  requestAnimationFrame(draw);
+}
+function drawBgSil(){
+  const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0b0716'); bg.addColorStop(1,'#1a0d2e');
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+  const gl=g.createRadialGradient(W*.49,H*.5,0,W*.49,H*.5,H*.75);
+  gl.addColorStop(0,'rgba(190,90,230,'+(.16+bassS*.45).toFixed(3)+')'); gl.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=gl; g.fillRect(0,0,W,H);
+}
+function drawBgPhoto(img){
+  if(!drawCover(img)){
+    g.fillStyle='#120a22'; g.fillRect(0,0,W,H);
+    g.fillStyle='#b4a3d6'; g.font='15px Manrope, sans-serif'; g.textAlign='center';
+    g.fillText('Выбери фото в «Оформлении»',W/2,H/2);
+  }
+  const sh=g.createLinearGradient(0,H*.4,0,H);
+  sh.addColorStop(0,'rgba(10,6,20,0)'); sh.addColorStop(1,'rgba(10,6,20,'+(.7-bassS*.2).toFixed(3)+')');
+  g.fillStyle=sh; g.fillRect(0,0,W,H);
 }
 /* Картинка на весь холст с обрезкой краёв, как background-size:cover */
 function drawCover(img){
@@ -1046,37 +1071,27 @@ function bars(fill,cx,base,maxH,mirror,minH){
   }
   g.globalAlpha=1;
 }
-/* Тема «Силуэт»: полосы расходятся за спиной Авроры */
-function drawSil(t){
-  const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0b0716'); bg.addColorStop(1,'#1a0d2e');
-  g.fillStyle=bg; g.fillRect(0,0,W,H);
-  const gl=g.createRadialGradient(W*.49,H*.5,0,W*.49,H*.5,H*.75);
-  gl.addColorStop(0,'rgba(190,90,230,'+(.16+bassS*.45).toFixed(3)+')'); gl.addColorStop(1,'rgba(0,0,0,0)');
-  g.fillStyle=gl; g.fillRect(0,0,W,H);
-  const hg=g.createLinearGradient(0,0,W,0);
-  hg.addColorStop(0,'#ff9a3c'); hg.addColorStop(.5,'#ff6f91'); hg.addColorStop(1,'#8a4dff');
-  bars(hg,W/2,H*.555,H*.4,true,H*.012);
-  drawCover(IMG.sil);
-}
-/* Темы с фото: полосы поднимаются снизу, как отражения на мокром асфальте */
-function drawPhoto(t){
-  const img=theme==='car'?IMG.car:IMG.custom;
-  if(!drawCover(img)){
-    g.fillStyle='#120a22'; g.fillRect(0,0,W,H);
-    g.fillStyle='#b4a3d6'; g.font='15px Manrope, sans-serif'; g.textAlign='center';
-    g.fillText('Выбери фото в «Оформлении»',W/2,H/2);
+/* ===== Эквалайзеры: рисуются поверх уже готового фона, каким бы он ни был ===== */
+/* Классика: у «Рассвета» полосы поднимаются из-за горизонта тёплым цветом,
+   на любом другом фоне — снизу вверх, в выбранном цвете палитры. */
+function eqClassic(p,hy,cx,t){
+  if(bg==='dawn'){
+    const step=(W*.94/2)/N, bw=Math.max(2,step*.46);
+    const bar=g.createLinearGradient(0,hy,0,hy-hy*.6);
+    bar.addColorStop(0,'rgba(255,190,120,.95)'); bar.addColorStop(1,'rgba(255,110,150,0)');
+    g.fillStyle=bar;
+    for(let i=0;i<N;i++){ const h=Math.max(1.5,lv[i]*hy*.58);
+      for(const sg of [-1,1]) g.fillRect(cx+sg*(i+.5)*step-bw/2,hy-h,bw,h); }
+    g.fillStyle='rgba(255,160,120,.22)';
+    for(let i=0;i<N;i++){ const h=lv[i]*hy*.2; for(const sg of [-1,1]) g.fillRect(cx+sg*(i+.5)*step-bw/2,hy+2,bw,h); }
+    return;
   }
-  const sh=g.createLinearGradient(0,H*.4,0,H);
-  sh.addColorStop(0,'rgba(10,6,20,0)'); sh.addColorStop(1,'rgba(10,6,20,'+(.7-bassS*.2).toFixed(3)+')');
-  g.fillStyle=sh; g.fillRect(0,0,W,H);
   const [,a,b]=PALETTES[palette]||PALETTES.neon;
   const vg=g.createLinearGradient(0,H,0,H*.5); vg.addColorStop(0,a); vg.addColorStop(1,b);
   bars(vg,W/2,H-4,H*.36,false,2);
 }
-
-/* Тема «Звуковая волна»: точечные пики над горизонтом и отражение из штрихов */
-function drawWave(t){
-  g.fillStyle='#050507'; g.fillRect(0,0,W,H);
+/* Волна: точечные пики над горизонтом и отражение из штрихов */
+function eqWave(){
   const M=64, my=H*.58, gap=W/(M+6), dot=Math.max(1.2,gap*.3), x0=(W-gap*(M-1))/2;
   g.fillStyle='#f4f2ff';
   for(let i=0;i<M;i++){
@@ -1090,10 +1105,9 @@ function drawWave(t){
   }
   g.globalAlpha=.55; g.fillRect(0,my,W,1); g.globalAlpha=1;
 }
-/* Тема «HUD»: кольца с делениями, радиальный спектр, прицел и дуга прогресса */
-function drawHud(t){
-  g.fillStyle='#040407'; g.fillRect(0,0,W,H);
-  g.fillStyle='rgba(200,60,80,.28)';
+/* HUD: кольца с делениями, радиальный спектр, прицел и дуга прогресса */
+function eqHud(p,hy,cx0,t){
+  g.fillStyle='rgba(10,4,10,.28)';
   for(let x=20;x<W;x+=40) for(let y=20;y<H;y+=40){ g.fillRect(x-3,y,7,1); g.fillRect(x,y-3,1,7); }
   const cx=W/2, cy=H/2, R=Math.min(W,H)*.27, [,acc]=PALETTES[palette]||PALETTES.neon, L='rgba(236,236,255,.85)';
   g.strokeStyle=L; g.lineWidth=1;
