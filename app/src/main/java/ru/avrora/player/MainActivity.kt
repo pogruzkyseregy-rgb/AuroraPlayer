@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val HOST = "https://appassets.androidplatform.net"
+        const val LIKED = "liked"  // id плейлиста «Нравится»
         val NO_ART = ByteArray(0)
     }
 
@@ -536,6 +537,41 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun prev() = ui { seekToPrevious(); start() }
         @JavascriptInterface fun seek(ms: Double) = ui { seekTo(ms.toLong()) }
         @JavascriptInterface fun setShuffle(on: Boolean) = ui { shuffleModeEnabled = on }
+
+        /** Перемешать и сразу включить случайный трек из текущей очереди. */
+        @JavascriptInterface fun shufflePlay() = ui {
+            shuffleModeEnabled = true
+            val n = mediaItemCount
+            if (n > 0) {
+                var i = (0 until n).random()
+                if (n > 1) while (i == currentMediaItemIndex) i = (0 until n).random()
+                seekToDefaultPosition(i)
+                start()
+            }
+        }
+
+        /** Лайк: трек попадает в плейлист «Нравится» (новые сверху) или убирается из него. */
+        @JavascriptInterface fun toggleLike(trackId: String) {
+            main.post {
+                var p = pl(LIKED)
+                if (p == null) {
+                    p = Playlist(LIKED, "Нравится", mutableListOf())
+                    playlists.add(0, p)
+                }
+                val synced = queueIs(p)
+                val i = p.ids.indexOf(trackId)
+                if (i >= 0) {
+                    p.ids.removeAt(i)
+                    if (synced) controller?.removeMediaItem(i)
+                } else {
+                    val t = lib[trackId] ?: return@post
+                    p.ids.add(0, trackId)
+                    if (synced) controller?.addMediaItem(0, t.toMediaItem())
+                }
+                Library.savePlaylists(this@MainActivity, playlists)
+                pushPlaylists()
+            }
+        }
 
         @JavascriptInterface fun setRepeat(mode: String) = ui {
             repeatMode = when (mode) {

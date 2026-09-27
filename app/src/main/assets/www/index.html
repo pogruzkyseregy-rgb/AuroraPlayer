@@ -135,6 +135,18 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
 .sig .cur{font-style:normal; animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 
+/* --- лайки --- */
+.lk{width:40px; height:40px; flex:none; display:grid; place-items:center}
+.lk img{width:30px; height:30px; border-radius:8px; display:block; transition:transform .15s, filter .2s}
+.lk.on img{filter:drop-shadow(0 0 6px rgba(255,140,120,.75))}
+.lk:active img{transform:scale(.85)}
+.lk.pop img{animation:pop .4s ease}
+@keyframes pop{45%{transform:scale(1.35)}}
+.now .lk{width:52px; height:52px}
+.now .lk img{width:42px; height:42px; border-radius:11px}
+.th.liked{background:none}
+.th.liked img{border-radius:12px}
+
 /* --- оформление --- */
 .themes{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:6px}
 .thc{text-align:left}
@@ -212,6 +224,7 @@ li.cur .pick .t div:first-child{color:var(--fox); font-weight:700}
       <div class="title" id="title">Ничего не играет</div>
       <div class="artist" id="artist">Выбери трек из списка</div>
     </div>
+    <button class="lk" id="nowLike" aria-label="Нравится" hidden><img alt="" src="like-off.webp"></button>
   </div>
 
   <div class="seek">
@@ -329,7 +342,10 @@ const lines={
   theme:{dawn:"Классика. Солнце встаёт вместе с песней.",sil:"Это я. Со спины, но узнаваемо.",
          car:"Ночь, дождь, дрифт. Мой любимый вайб.",custom:"Твоё фото, мой эквалайзер. Договорились."},
   bgPick:"Выбери фото в галерее, я положу эквалайзер поверх.",
-  palette:"Перекрасила полосы."
+  palette:"Перекрасила полосы.",
+  liked:["Добавила в «Нравится». Хороший вкус.","Запомнила. Теперь это наше.","В «Нравится». Буду иметь в виду."],
+  unliked:"Убрала из «Нравится».",
+  shuffleGo:"Перемешала и включила случайный. Посмотрим, что выпало."
 };
 
 /* ===== Оформление: темы визуализатора и цвета полос =====
@@ -363,6 +379,28 @@ const GRIP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wi
 const NOTE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>';
 window.noArt=img=>{ img.outerHTML=FOX; };
 const artUrl=id=>{ const t=libMap[id]; return HOST+'/art/'+encodeURIComponent(id)+'?v='+(t?t.av:0); };
+/* ===== Лайки: плейлист «Нравится» (id liked) ===== */
+const LIKED='liked';
+const likedIds=()=>{ const p=pls.find(x=>x.id===LIKED); return p?p.ids:[]; };
+const isLiked=id=>likedIds().includes(id);
+const likeBtn=id=>{ const on=isLiked(id);
+  return '<button class="lk'+(on?' on':'')+'" data-like="'+esc(id)+'" aria-label="Нравится"><img alt="" src="'+(on?'like-on.webp':'like-off.webp')+'"></button>'; };
+function paintLike(el,on,pop){
+  el.classList.toggle('on',on); el.querySelector('img').src=on?'like-on.webp':'like-off.webp';
+  if(pop){ el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+}
+function toggleLike(id){
+  if(!id||!libMap[id]) return;
+  let p=pls.find(x=>x.id===LIKED);
+  if(!p){ p={id:LIKED,name:'Нравится',ids:[]}; pls.unshift(p); }
+  const i=p.ids.indexOf(id), on=i<0;
+  if(on) p.ids.unshift(id); else p.ids.splice(i,1);
+  call('toggleLike',id);
+  speak(on?pick(lines.liked):lines.unliked);
+  document.querySelectorAll('[data-like="'+id+'"]').forEach(el=>paintLike(el,on,on));
+  if(id===st.currentId) paintLike($('nowLike'),on,on);
+  if(tab==='lists') renderList();
+}
 const DOTS='<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
 
 /* ===== Данные от Android ===== */
@@ -384,7 +422,7 @@ window.fromAndroid={
     shownId=null;
     renderList(); updateNow();
   },
-  playlists(list){ pls=list; if(tab==='lists') renderList(); },
+  playlists(list){ pls=list; renderList(); paintLike($('nowLike'),isLiked(st.currentId),false); },
   saved(kind){ speak(kind==='fail'?lines.coverFail:lines.coverOk); },
   deleted(ok){ speak(ok?lines.deleted:lines.delFail); },
   bgSaved(name){
@@ -421,6 +459,8 @@ function updateNow(){
   const title=(t&&t.title)||st.title;
   $('title').textContent=title||'Ничего не играет';
   $('artist').textContent=title?((t&&t.artist)||st.artist||''):'Выбери трек из списка';
+  $('nowLike').hidden=!(t&&st.currentId);
+  if(t) paintLike($('nowLike'),isLiked(st.currentId),false);
   const key=st.currentId+'|'+(t?t.av:0);
   if(shownId!==key){
     shownId=key;
@@ -442,6 +482,7 @@ function row(t,i,mode,sec,sub){
       '<img loading="lazy" alt="" src="'+artUrl(t.id)+'" onerror="noArt(this)">'+
       (cur&&st.playing?'<span class="eqi"><i></i><i></i><i></i></span>':'')+
     '</span><span class="t"><div>'+esc(t.title)+'</div><div class="a">'+esc(t.artist)+' · '+(sub||(t.dur?fmt(t.dur):''))+'</div></span></button>'+
+    likeBtn(t.id)+
     (mode!=='pl'
       ?'<button class="rb" data-menu="'+esc(t.id)+'" aria-label="Действия с треком">'+DOTS+'</button>'
       :'<button class="rb" data-rm="'+i+'" aria-label="Убрать из плейлиста">'+XMARK+'</button>')+
@@ -461,7 +502,8 @@ function listsHtml(){
   if(!pls.length) return h+card('Плейлистов пока нет.');
   return h+'<ol>'+pls.map(p=>{
     const n=p.ids.filter(id=>libMap[id]).length;
-    return '<li><button class="pick" data-open="'+esc(p.id)+'"><span class="th pl">'+NOTE+'</span>'+
+    const ic=p.id===LIKED?'<span class="th liked"><img alt="" src="like-on.webp"></span>':'<span class="th pl">'+NOTE+'</span>';
+    return '<li><button class="pick" data-open="'+esc(p.id)+'">'+ic+
       '<span class="t"><div>'+esc(p.name)+'</div><div class="a">'+n+' '+plural(n,'трек','трека','треков')+'</div></span></button>'+
       '<span class="chev">›</span></li>';
   }).join('')+'</ol>';
@@ -510,6 +552,7 @@ function renderList(){
   $('tabLib').classList.toggle('on',tab==='lib'); $('tabLists').classList.toggle('on',tab==='lists'); $('tabRecs').classList.toggle('on',tab==='recs');
   $('libBar').hidden=!(tab==='lib'&&perm===true&&(lib.length||hiddenN));
   $('plBar').hidden=!(tab==='lists'&&p);
+  $('plEdit').hidden=$('plDel').hidden=!!(p&&p.id===LIKED);
   $('list').innerHTML= tab==='lib'?libHtml() : tab==='recs'?recsHtml() : p?plHtml(p) : openPl?card('…') : listsHtml();
 }
 
@@ -521,8 +564,9 @@ $('q').addEventListener('input',e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=
 $('bRescan').onclick=()=>call('rescan');
 
 $('list').addEventListener('click',e=>{
-  const el=e.target.closest('[data-play],[data-menu],[data-rm],[data-open],[data-recplay],#askPerm,#newPl,#unhide');
+  const el=e.target.closest('[data-like],[data-play],[data-menu],[data-rm],[data-open],[data-recplay],#askPerm,#newPl,#unhide');
   if(!el) return;
+  if(el.dataset.like) return toggleLike(el.dataset.like);
   if(el.id==='unhide'){ call('unhideAll'); speak(lines.unhid); return; }
   if(el.id==='askPerm') return call('askPermission');
   if(el.id==='newPl') return openName('Новый плейлист','',n=>{ openPl=call('newPlaylist',n); speak(lines.plNew(esc(n))); renderList(); });
@@ -731,6 +775,7 @@ function openTheme(){
   };
 }
 $('bTheme').onclick=openTheme;
+$('nowLike').onclick=()=>toggleLike(st.currentId);
 
 function openSleep(){
   const status= st.sleep>0?'Усну через '+Math.ceil(st.sleep/60000)+' мин.'
@@ -791,7 +836,14 @@ if(!A) speak('Это экран Android-приложения, в браузер�
 $('play').onclick=()=>{ if(!st.currentId&&!lib.length){ speak(perm===false?lines.perm:'Сначала выбери трек в списке.'); return; } call('toggle'); };
 $('next').onclick=()=>call('next');
 $('prev').onclick=()=>call('prev');
-$('shuffle').onclick=()=>{ const on=!st.shuffle; call('setShuffle',on); speak(on?lines.shuffleOn:lines.shuffleOff); };
+/* Перемешать: сразу включаем случайный трек */
+$('shuffle').onclick=()=>{
+  if(st.shuffle){ call('setShuffle',false); speak(lines.shuffleOff); return; }
+  if(st.currentId) call('shufflePlay');
+  else if(lib.length){ call('setShuffle',true); call('playList',JSON.stringify(lib.map(t=>t.id)),Math.floor(Math.random()*lib.length),'lib'); }
+  else return speak(perm===false?lines.perm:lines.recsEmpty);
+  speak(lines.shuffleGo);
+};
 $('repeat').onclick=()=>{ const m=st.repeat==='off'?'all':st.repeat==='all'?'one':'off'; call('setRepeat',m); speak(lines.repeat[m]); };
 const pos=$('pos');
 pos.addEventListener('input',()=>{ seeking=true; prog(pos); $('cur').textContent=fmt(pos.value/1000*st.dur); });

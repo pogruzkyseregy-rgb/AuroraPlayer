@@ -11,8 +11,8 @@ android {
         applicationId = "ru.avrora.player"
         minSdk = 26          // Android 8.0 и новее
         targetSdk = 34
-        versionCode = 7
-        versionName = "2.5"
+        versionCode = 8
+        versionName = "2.6"
     }
 
     // Постоянный ключ подписи: благодаря ему новые версии
