@@ -70,6 +70,13 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
+        // восстанавливаем сохранённый режим повтора (запоминается насовсем, а не только на сессию)
+        exo.repeatMode = when (Library.prefs(this).getString("repeat", "off")) {
+            "all" -> Player.REPEAT_MODE_ALL
+            "one" -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 statFlush()

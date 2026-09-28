@@ -653,6 +653,8 @@ class MainActivity : ComponentActivity() {
                 "one" -> Player.REPEAT_MODE_ONE
                 else -> Player.REPEAT_MODE_OFF
             }
+            // запоминаем выбор, чтобы он не слетал после перезапуска телефона
+            Library.prefs(this@MainActivity).edit().putString("repeat", mode).apply()
         }
 
         // плейлисты
