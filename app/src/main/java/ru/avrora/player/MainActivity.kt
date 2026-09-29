@@ -612,18 +612,6 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun seek(ms: Double) = ui { seekTo(ms.toLong()) }
         @JavascriptInterface fun setShuffle(on: Boolean) = ui { shuffleModeEnabled = on }
 
-        /** Перемешать и сразу включить случайный трек из текущей очереди. */
-        @JavascriptInterface fun shufflePlay() = ui {
-            shuffleModeEnabled = true
-            val n = mediaItemCount
-            if (n > 0) {
-                var i = (0 until n).random()
-                if (n > 1) while (i == currentMediaItemIndex) i = (0 until n).random()
-                seekToDefaultPosition(i)
-                start()
-            }
-        }
-
         /** Лайк: трек попадает в плейлист «Нравится» (новые сверху) или убирается из него. */
         @JavascriptInterface fun toggleLike(trackId: String) {
             main.post {

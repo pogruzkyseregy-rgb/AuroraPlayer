@@ -959,8 +959,9 @@ $('prev').onclick=()=>call('prev');
 /* Перемешать: сразу включаем случайный трек */
 $('shuffle').onclick=()=>{
   if(st.shuffle){ call('setShuffle',false); speak(lines.shuffleOff); return; }
-  if(st.currentId) call('shufflePlay');
-  else if(lib.length){ call('setShuffle',true); call('playList',JSON.stringify(lib.map(t=>t.id)),Math.floor(Math.random()*lib.length),'lib'); }
+  // всегда мешаем всю библиотеку, а не то, что случайно осталось в текущей (возможно короткой) очереди —
+  // иначе кнопка «застревала» на нескольких треках, если до этого играл маленький плейлист
+  if(lib.length){ call('setShuffle',true); call('playList',JSON.stringify(lib.map(t=>t.id)),Math.floor(Math.random()*lib.length),'lib'); }
   else return speak(perm===false?lines.perm:lines.recsEmpty);
   speak(lines.shuffleGo);
 };
