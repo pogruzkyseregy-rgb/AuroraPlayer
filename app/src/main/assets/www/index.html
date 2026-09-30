@@ -375,7 +375,7 @@ const lines={
   delFail:"Не удалила. Может, ты передумал?",
   theme:{dawn:"Классика. Солнце встаёт вместе с песней.",sil:"Это я. Со спины, но узнаваемо.",
          car:"Ночь, дождь, дрифт. Мой любимый вайб.",custom:"Твоё фото, мой эквалайзер. Договорились."},
-  viz:{classic:"Обычные полосы. Надёжно.",wave:"Чистый звук, ничего лишнего.",hud:"Система наведения на бит активирована.",circuit:"Плата разведена, сигнал пошёл по дорожкам.",naut:"Закручиваем звук по спирали."},
+  viz:{classic:"Обычные полосы. Надёжно.",wave:"Чистый звук, ничего лишнего.",hud:"Система наведения на бит активирована.",orbit:"Вышли на орбиту. Красиво же?"},
   bgPick:"Выбери фото в галерее, я положу эквалайзер поверх.",
   palette:"Перекрасила полосы.",
   liked:["Добавила в «Нравится». Хороший вкус.","Запомнила. Теперь это наше.","В «Нравится». Буду иметь в виду."],
@@ -392,7 +392,7 @@ const lines={
 /* ===== Оформление: фон и эквалайзер выбираются отдельно и сочетаются =====
    Новый фон: добавь в BGS и функцию drawBg<Имя>. Новый эквалайзер: добавь в EQS и функцию eq<Имя>. */
 const BGS=[['dawn','Рассвет'],['sil','Силуэт'],['car','Ночной дрифт'],['custom','Своё фото']];
-const EQS=[['classic','Классика'],['wave','Волна'],['hud','HUD'],['circuit','Схема'],['naut','Наутилус']];
+const EQS=[['classic','Классика'],['wave','Волна'],['hud','HUD'],['orbit','Орбита']];
 const PALETTES={neon:['Неон','#ff3b6b','#b84dff'],fluorite:['Флюорит','#5ae6f5','#8e9bff'],dawn:['Закат','#ffc070','#ff6f91']};
 const store={get(k,d){ try{ return localStorage.getItem(k)||d; }catch(e){ return d; } },
              set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }};
@@ -865,7 +865,7 @@ function openTheme(){
     sil:'background-image:url(sil.webp);background-color:#150c28',
     car:'background-image:url(car.jpg)',
     custom:bgName?'background-image:url('+HOST+'/custom/'+bgName+')':''};
-  const eqThumb={classic:'',wave:'background-image:url(th-wave.png)',hud:'background-image:url(th-hud.png)',circuit:'background-image:url(th-circuit.png)',naut:'background-image:url(th-naut.png)'};
+  const eqThumb={classic:'',wave:'background-image:url(th-wave.png)',hud:'background-image:url(th-hud.png)',orbit:'background-image:url(th-orbit.png)'};
   const bgCards=BGS.map(([k,name])=>{
     const empty=k==='custom'&&!bgName;
     return '<button class="thc'+(bg===k?' on':'')+(empty?' none':'')+'" data-bg="'+k+'"><i style="'+bgThumb[k]+'">'+(empty?PLUS:'')+'</i><span>'+name+'</span></button>';
@@ -1067,7 +1067,7 @@ function draw(ts){
   // 1) фон — 2) эквалайзер поверх — 3) силуэт Авроры (у него прозрачный фон, поэтому рисуется последним
   const bgFn={dawn:drawBgDawn,sil:drawBgSil,car:()=>drawBgPhoto(IMG.car),custom:()=>drawBgPhoto(IMG.custom)}[bg]||drawBgDawn;
   bgFn(p,hy,cx,t);
-  ({classic:eqClassic,wave:eqWave,hud:eqHud,circuit:eqCircuit,naut:eqNaut}[eqStyle]||eqClassic)(p,hy,cx,t);
+  ({classic:eqClassic,wave:eqWave,hud:eqHud,orbit:eqOrbit}[eqStyle]||eqClassic)(p,hy,cx,t);
   if(bg==='sil') drawCover(IMG.sil);
 
   updateNoise(); tickGlitch(t);
@@ -1220,91 +1220,53 @@ function eqHud(p,hy,cx0,t){
   g.textAlign='right'; g.fillText(st.dur>0?fmt(curPos()):'LIVE',W-14,20); g.fillText('BASS '+String(Math.round(bassS*100)).padStart(3,'0'),W-14,H-12);
 }
 
-/* «Схема»: центральный чип и дорожки к узлам, длина и свечение — по полосам эквалайзера */
-const CIRCUIT_DIRS=8;
-function eqCircuit(p,hy,cx0,t){
-  const cx=W/2, cy=H/2, [,acc]=PALETTES[palette]||PALETTES.neon, R=Math.min(W,H)*.46;
-  const chip=18+bassS*6;
-  // тёмная подложка — чтобы линии читались и над светлым/пёстрым фото, не только над тёмным
-  const scrim=g.createRadialGradient(cx,cy,0,cx,cy,R);
-  scrim.addColorStop(0,'rgba(6,4,14,.55)'); scrim.addColorStop(1,'rgba(6,4,14,0)');
+/* «Орбита»: светящееся ядро с орбитальными кольцами, от него — стеклянные столбики в обе стороны */
+function eqOrbit(p,hy,cx0,t){
+  const cx=W/2, cy=H/2, [,a1,a2]=PALETTES[palette]||PALETTES.neon, R=Math.min(W,H)*.42;
+  // тёмная подложка сразу, а не потом — чтобы читалось и над светлым/пёстрым фото
+  const scrim=g.createRadialGradient(cx,cy,0,cx,cy,R*1.35);
+  scrim.addColorStop(0,'rgba(4,6,16,.6)'); scrim.addColorStop(1,'rgba(4,6,16,0)');
   g.fillStyle=scrim; g.fillRect(0,0,W,H);
-  g.strokeStyle='rgba(236,236,255,.9)'; g.fillStyle='rgba(236,236,255,.9)'; g.lineWidth=1.6;
-  for(let k=0;k<7;k++){
-    const a=k*0.9+t*0.05, r=R*.9;
-    hexAt(cx+Math.cos(a)*r, cy+Math.sin(a)*r*.75, 5+((k*37)%6), 0.1+bassS*0.12*((k%3)+1)/3);
-  }
+  // тонкие орбитальные кольца пунктиром
+  g.save(); g.strokeStyle='rgba(210,220,255,.22)'; g.setLineDash([1,5]); g.lineWidth=1;
+  for(let k=1;k<=3;k++){ g.beginPath(); g.arc(cx,cy,R*0.30*k,0,6.283); g.stroke(); }
+  g.restore();
+  // ядро с лёгкой пульсацией на басах
+  const cr=R*0.15*(1+bassS*.3);
+  const orb=g.createRadialGradient(cx,cy,0,cx,cy,cr*2.2);
+  orb.addColorStop(0,mixHex(a1,a2,.5)); orb.addColorStop(.55,hexToRgba(a2,.55)); orb.addColorStop(1,hexToRgba(a2,0));
+  g.fillStyle=orb; g.beginPath(); g.arc(cx,cy,cr*2.2,0,6.283); g.fill();
+  g.strokeStyle='rgba(235,238,255,.92)'; g.lineWidth=1.5;
+  g.beginPath(); g.arc(cx,cy,cr*.6,0,6.283); g.stroke();
+  // симметричные стеклянные столбики влево/вправо от ядра, высота — по спектру
+  const step=(R*1.9)/N, bw=Math.max(3,step*.52), gap=cr*1.3;
   for(let i=0;i<N;i++){
-    const ang=(i%CIRCUIT_DIRS)*(Math.PI/4), stagger=chip+8+Math.floor(i/CIRCUIT_DIRS)*16;
-    const ux=Math.cos(ang), uy=Math.sin(ang);
-    const x0=cx+ux*stagger, y0=cy+uy*stagger*.72;
-    const len=14+lv[i]*44;   // короче прежнего — не долетает до края и меньше режет по лицу
-    const x1=x0+ux*len, y1=y0+uy*len*.72;
-    const x2=x1+Math.sign(ux||1)*10, y2=y1;
-    const lit=lv[i]>0.22;
-    g.globalAlpha = lit? .95 : .42;
-    g.lineWidth = lit? 2 : 1.4;
-    g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.lineTo(x2,y2); g.stroke();
-    g.beginPath(); g.arc(x2,y2, lit?3:1.8, 0, 6.283); g.fillStyle = lit? acc : 'rgba(236,236,255,.75)'; g.fill();
-  }
-  g.lineWidth=1.6;
-  g.globalAlpha=1;
-  g.save();
-  g.strokeStyle='rgba(236,236,255,.92)'; g.lineWidth=1.6;
-  g.strokeRect(cx-chip/2,cy-chip/2,chip,chip);
-  const glow=g.createRadialGradient(cx,cy,1,cx,cy,chip*1.8);
-  glow.addColorStop(0, hexToRgba(acc,.55+bassS*.3)); glow.addColorStop(1, hexToRgba(acc,0));
-  g.fillStyle=glow; g.beginPath(); g.arc(cx,cy,chip*1.8,0,6.283); g.fill();
-  for(let s=0;s<4;s++){ const a=s*Math.PI/2;
-    for(const o of [-chip*.28,0,chip*.28]){
-      const px=Math.cos(a)*chip/2 - Math.sin(a)*o, py=Math.sin(a)*chip/2 + Math.cos(a)*o;
-      g.beginPath(); g.moveTo(cx+px,cy+py); g.lineTo(cx+px+Math.cos(a)*6,cy+py+Math.sin(a)*6); g.stroke();
+    const h=Math.max(4,lv[i]*R*0.85);
+    for(const sgn of [-1,1]){
+      const x=cx+sgn*(gap+i*step);
+      if(x<bw||x>W-bw) continue;
+      const grad=g.createLinearGradient(0,cy-h,0,cy+h);
+      grad.addColorStop(0,hexToRgba(a1,.95)); grad.addColorStop(.5,hexToRgba(mixHex(a1,a2,.5),.95)); grad.addColorStop(1,hexToRgba(a2,.95));
+      g.fillStyle=grad;
+      roundRectV(x-bw/2,cy-h,bw,h*2,bw*0.45);
     }
   }
-  g.restore();
 }
-function hexAt(x,y,r,alpha){
-  g.save(); g.globalAlpha=alpha; g.beginPath();
-  for(let k=0;k<6;k++){ const a=k*Math.PI/3; const px=x+Math.cos(a)*r, py=y+Math.sin(a)*r; k?g.lineTo(px,py):g.moveTo(px,py); }
-  g.closePath(); g.stroke(); g.restore();
+function roundRectV(x,y,w,h,r){
+  r=Math.min(r,w/2,h/2);
+  g.beginPath();
+  g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r);
+  g.closePath(); g.fill();
+}
+function mixHex(h1,h2,f){
+  const n1=parseInt(h1.slice(1),16), n2=parseInt(h2.slice(1),16);
+  const r=Math.round(((n1>>16)&255)*(1-f)+((n2>>16)&255)*f);
+  const gg=Math.round(((n1>>8)&255)*(1-f)+((n2>>8)&255)*f);
+  const b=Math.round((n1&255)*(1-f)+(n2&255)*f);
+  return '#'+[r,gg,b].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
 function hexToRgba(hex,a){
   const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
-}
-
-/* «Наутилус»: логарифмическая спираль, вращается медленно, вокруг — деления спектра */
-function eqNaut(p,hy,cx0,t){
-  const cx=W/2, cy=H/2, R=Math.min(W,H)*.38, [,acc]=PALETTES[palette]||PALETTES.neon;
-  // тёмная подложка — чтобы лента и деления читались и над светлым/пёстрым фото
-  const scrim=g.createRadialGradient(cx,cy,0,cx,cy,R*1.5);
-  scrim.addColorStop(0,'rgba(6,4,14,.5)'); scrim.addColorStop(1,'rgba(6,4,14,0)');
-  g.fillStyle=scrim; g.fillRect(0,0,W,H);
-  g.save(); g.translate(cx,cy); g.rotate(t*0.06);
-  // раковина — лента переменной толщины (у центра тоньше, к краю шире), как на референсе, не тонкий контур
-  const turns=1.7, steps=160;
-  for(let s=0;s<steps;s++){
-    const f0=s/steps, f1=(s+1)/steps;
-    const th0=turns*6.283*f0, th1=turns*6.283*f1;
-    const r0=6+(R*0.94)*Math.pow(f0,0.55), r1=6+(R*0.94)*Math.pow(f1,0.55);
-    g.beginPath();
-    g.moveTo(Math.cos(th0)*r0,Math.sin(th0)*r0);
-    g.lineTo(Math.cos(th1)*r1,Math.sin(th1)*r1);
-    g.lineWidth=1.5+f0*7; g.strokeStyle='rgba(236,236,255,'+(.5+f0*.4)+')';
-    g.stroke();
-  }
-  g.lineWidth=2.2;
-  for(let i=0;i<N;i++){
-    const a=i*6.283/N, r1=R*1.06, v=lv[i], r2=r1+6+v*R*.55;
-    g.globalAlpha=.5+v*.5; g.strokeStyle = v>0.4? acc : 'rgba(236,236,255,.82)';
-    g.beginPath(); g.moveTo(Math.cos(a)*r1,Math.sin(a)*r1); g.lineTo(Math.cos(a)*r2,Math.sin(a)*r2); g.stroke();
-  }
-  g.globalAlpha=1;
-  g.restore();
-  const cr=6+bassS*10;
-  const glow=g.createRadialGradient(cx,cy,0,cx,cy,cr*3.2);
-  glow.addColorStop(0, hexToRgba(acc,.7)); glow.addColorStop(1, hexToRgba(acc,0));
-  g.fillStyle=glow; g.beginPath(); g.arc(cx,cy,cr*3.2,0,6.283); g.fill();
-  g.fillStyle='rgba(236,236,255,.9)'; g.beginPath(); g.arc(cx,cy,cr*.4,0,6.283); g.fill();
 }
 
 requestAnimationFrame(draw);
