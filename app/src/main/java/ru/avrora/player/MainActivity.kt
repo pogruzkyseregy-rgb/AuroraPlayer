@@ -728,6 +728,16 @@ class MainActivity : ComponentActivity() {
             main.post { Custom.editTrack(this@MainActivity, id, title, artist); afterEdit(listOf(id)) }
         }
 
+        /** Переименовать исполнителя сразу у всех треков, где он сейчас указан так же. */
+        @JavascriptInterface fun bulkRenameArtist(oldName: String, newName: String) {
+            main.post {
+                val to = newName.trim(); if (to.isEmpty()) return@post
+                val ids = lib.values.filter { it.artist == oldName }.map { it.id }
+                ids.forEach { id -> lib[id]?.let { Custom.editTrack(this@MainActivity, id, it.title, to) } }
+                afterEdit(ids)
+            }
+        }
+
         @JavascriptInterface fun editAlbum(albumId: String, name: String) {
             main.post { Custom.editAlbum(this@MainActivity, albumId, name); afterEdit(albumTracks(albumId)) }
         }

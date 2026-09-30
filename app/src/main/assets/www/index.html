@@ -803,11 +803,13 @@ const openName=(title,value,cb)=>openForm(title,[{value,ph:'Название'}],
 function openTrackMenu(id){
   const t=libMap[id]; if(!t) return;
   const hasAlbum=t.albumId&&t.albumId!=='0';
+  const sameArtistN=lib.filter(x=>x.artist===t.artist).length;
   const opt=(k,label)=>'<button class="opt" data-k="'+k+'">'+label+'</button>';
   openSheet('<div class="tm"><span class="th"><img alt="" src="'+artUrl(id)+'" onerror="noArt(this)"></span>'+
     '<div><h3>'+esc(t.title)+'</h3><p class="muted">'+esc(t.artist)+(t.album?' · '+esc(t.album):'')+'</p></div></div><div class="opts">'+
     opt('add','Добавить в плейлист')+
     opt('rename','Переименовать трек')+
+    (sameArtistN>1?opt('bulkArtist','Исправить у всех такого исполнителя ('+sameArtistN+')'):'')+
     opt('tcover','Своя обложка трека')+
     (hasAlbum?opt('album','Переименовать альбом')+opt('acover','Своя обложка альбома'):'')+
     (t.tc?opt('treset','Вернуть трек как было'):'')+
@@ -820,6 +822,7 @@ function openTrackMenu(id){
     const k=b.dataset.k;
     if(k==='add') return openAddTo(id);
     if(k==='rename') return openForm('Переименовать трек',[{value:t.title,ph:'Название'},{value:t.artist,ph:'Исполнитель'}],v=>{ call('editTrack',id,v[0],v[1]||t.artist); speak(lines.renamed); });
+    if(k==='bulkArtist') return openForm('Исправить у всех ('+sameArtistN+' трек.)',[{value:t.artist,ph:'Сейчас'},{value:'',ph:'Правильное имя'}],v=>{ if(!v[1]) return; call('bulkRenameArtist',t.artist,v[1]); speak(lines.renamed); });
     if(k==='del') return openDelete(id);
     if(k==='album') return openForm('Переименовать альбом',[{value:t.album,ph:'Название альбома'}],v=>{ call('editAlbum',t.albumId,v[0]); speak(lines.renamed); });
     closeSheet();
