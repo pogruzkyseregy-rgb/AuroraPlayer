@@ -11,8 +11,8 @@ android {
         applicationId = "ru.avrora.player"
         minSdk = 26          // Android 8.0 и новее
         targetSdk = 34
-        versionCode = 15
-        versionName = "3.3"
+        versionCode = 17
+        versionName = "3.5"
     }
 
     // Постоянный ключ подписи: благодаря ему новые версии
@@ -51,5 +51,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.4.1") // радиостанции в формате HLS
+    // Glyph-подсветка на Nothing Phone (2), личная фишка. Файл клади сам в app/libs/ —
+    // он не в Maven, официально раздаётся только как AAR внутри репозитория Nothing.
+    implementation(files("libs/glyph-matrix-sdk-2.0.aar"))
     implementation("com.google.guava:guava:33.2.1-android")
 }

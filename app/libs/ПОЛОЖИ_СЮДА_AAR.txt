@@ -1,0 +1,4 @@
+Сюда нужно положить файл glyph-matrix-sdk-2.0.aar
+(скачать с github.com/Nothing-Developer-Programme/Glyph-Developer-Kit, папка sdk)
+
+После того как файл окажется рядом с этим текстовиком — его можно удалить.

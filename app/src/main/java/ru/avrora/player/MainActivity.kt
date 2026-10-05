@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        GlyphViz.init(this)
         playlists.addAll(Library.loadPlaylists(this))
         queueSource = Library.loadSource(this)
         hidden.addAll(Library.loadHidden(this))
@@ -204,7 +205,18 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    override fun onResume() {
+        super.onResume()
+        GlyphViz.resume()
+    }
+
+    override fun onPause() {
+        GlyphViz.pause()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        GlyphViz.destroy()
         web.destroy()
         super.onDestroy()
     }

@@ -962,10 +962,14 @@ $('prev').onclick=()=>call('prev');
 /* Перемешать: сразу включаем случайный трек */
 $('shuffle').onclick=()=>{
   if(st.shuffle){ call('setShuffle',false); speak(lines.shuffleOff); return; }
-  // всегда мешаем всю библиотеку, а не то, что случайно осталось в текущей (возможно короткой) очереди —
-  // иначе кнопка «застревала» на нескольких треках, если до этого играл маленький плейлист
-  if(lib.length){ call('setShuffle',true); call('playList',JSON.stringify(lib.map(t=>t.id)),Math.floor(Math.random()*lib.length),'lib'); }
-  else return speak(perm===false?lines.perm:lines.recsEmpty);
+  if(!lib.length) return speak(perm===false?lines.perm:lines.recsEmpty);
+  // перемешиваем порядок id сами, в JS (Fisher–Yates) — и шлём каждый раз РАЗНЫЙ порядок.
+  // Если слать одни и те же id в одном и том же порядке (как раньше), Kotlin-сторона видит
+  // «это та же очередь» и просто перескакивает на индекс, ни разу не пересобирая плеер —
+  // из-за этого «перемешать» на деле крутилось по одному и тому же порядку бесконечно.
+  const ids=lib.map(t=>t.id);
+  for(let i=ids.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [ids[i],ids[j]]=[ids[j],ids[i]]; }
+  call('setShuffle',true); call('playList',JSON.stringify(ids),0,'lib');
   speak(lines.shuffleGo);
 };
 $('repeat').onclick=()=>{ const m=st.repeat==='off'?'all':st.repeat==='all'?'one':'off'; call('setRepeat',m); speak(lines.repeat[m]); };
