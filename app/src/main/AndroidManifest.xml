@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Glyph SDK объявляет minSdk 33, а плеер работает с Android 8. Разрешаем это:
+         код подсветки сам проверяет версию Android и модель телефона перед вызовом SDK -->
+    <uses-sdk tools:overrideLibrary="com.nothing.thirdparty" />
 
     <!-- Шрифты интерфейса грузятся из интернета (без сети будут системные) -->
     <uses-permission android:name="android.permission.INTERNET" />
