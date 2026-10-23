@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -26,6 +27,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.max
+import kotlin.random.Random
 
 /**
  * Сервис, который играет музыку в фоне. Здесь же живут
@@ -83,6 +85,14 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // Перемешивание + «повтор всей очереди»: прошли круг — следующий круг в новом порядке
+                val t = exo.currentTimeline
+                if (exo.shuffleModeEnabled && exo.repeatMode == Player.REPEAT_MODE_ALL &&
+                    (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) &&
+                    !t.isEmpty &&
+                    prevIndex == t.getLastWindowIndex(true) && exo.currentMediaItemIndex == t.getFirstWindowIndex(true)
+                ) main.post { freshShuffle() }
+                prevIndex = exo.currentMediaItemIndex
                 statFlush()
                 statId = mediaItem?.mediaId
                 statAcc = 0
@@ -141,6 +151,52 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         instance = this
+    }
+
+    // ---------- перемешивание ----------
+    // ExoPlayer сам строит случайный порядок, но текущий трек оказывается в нём в СЛУЧАЙНОМ месте.
+    // Тогда играет только «хвост» порядка после него, а «Дальше» в конце прыгает на трек №0 —
+    // и снова тот же хвост: плеер крутится по кругу на части треков. Поэтому порядок задаём сами:
+    // текущий трек всегда первый, остальные в случайном порядке после него.
+
+    private val main = Handler(Looper.getMainLooper())
+    private var prevIndex = 0
+
+    /** Новый случайный порядок, в котором текущий трек идёт первым. */
+    fun freshShuffle() {
+        val n = exo.mediaItemCount
+        if (n < 2 || !exo.shuffleModeEnabled) return
+        val cur = exo.currentMediaItemIndex.coerceIn(0, n - 1)
+        val rest = (0 until n).filter { it != cur }.shuffled()
+        val order = IntArray(n) { if (it == 0) cur else rest[it - 1] }
+        exo.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order, Random.nextLong()))
+        prevIndex = cur
+    }
+
+    /** Включить/выключить перемешивание. */
+    fun setShuffle(on: Boolean) {
+        exo.shuffleModeEnabled = on
+        if (on) freshShuffle()
+    }
+
+    /** Начать очередь сначала. При перемешивании — со случайного трека и в новом порядке. */
+    fun restartQueue() {
+        val n = exo.mediaItemCount
+        if (n == 0) return
+        if (exo.shuffleModeEnabled) {
+            exo.seekToDefaultPosition(Random.nextInt(n))
+            freshShuffle()
+        } else {
+            exo.seekToDefaultPosition(0)
+        }
+    }
+
+    /** «Дальше»: следующий трек, а в конце очереди — новый круг. */
+    fun skipNext() {
+        if (exo.mediaItemCount == 0) return
+        if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() else restartQueue()
+        if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+        exo.play()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session

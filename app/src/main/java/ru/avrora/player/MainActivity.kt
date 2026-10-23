@@ -494,7 +494,10 @@ class MainActivity : ComponentActivity() {
     // ---------- очередь ----------
 
     private fun playQueue(idsJson: String, index: Int, source: String) {
-        val c = controller ?: return
+        // Плеером управляем напрямую (он в том же процессе): так перемешивание
+        // гарантированно применяется уже к новой очереди, без гонки с MediaController
+        val svc = PlaybackService.instance
+        val c: Player = svc?.exo ?: controller ?: return
         val arr = JSONArray(idsJson)
         val ids = List(arr.length()) { arr.getString(it) }.filter { lib.containsKey(it) }
         if (ids.isEmpty()) return
@@ -506,6 +509,7 @@ class MainActivity : ComponentActivity() {
             c.setMediaItems(ids.map { lib[it]!!.toMediaItem() }, i, 0)
             setSource(source)
         }
+        svc?.freshShuffle()   // выбранный трек — первый в случайном порядке, дальше вся очередь
         if (c.playbackState == Player.STATE_IDLE) c.prepare()
         c.play()
     }
@@ -610,19 +614,29 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun toggle() = ui {
             if (playWhenReady && playbackState != Player.STATE_ENDED) pause()
             else {
-                if (playbackState == Player.STATE_ENDED) seekToDefaultPosition(0)
+                if (playbackState == Player.STATE_ENDED) {
+                    PlaybackService.instance?.restartQueue() ?: seekToDefaultPosition(0)
+                }
                 start()
             }
         }
 
-        @JavascriptInterface fun next() = ui {
-            if (hasNextMediaItem()) seekToNextMediaItem() else if (mediaItemCount > 0) seekToDefaultPosition(0)
-            start()
+        @JavascriptInterface fun next() {
+            main.post {
+                val svc = PlaybackService.instance
+                if (svc != null) svc.skipNext()
+                else controller?.run {
+                    if (hasNextMediaItem()) seekToNextMediaItem() else if (mediaItemCount > 0) seekToDefaultPosition(0)
+                    start()
+                }
+            }
         }
 
         @JavascriptInterface fun prev() = ui { seekToPrevious(); start() }
         @JavascriptInterface fun seek(ms: Double) = ui { seekTo(ms.toLong()) }
-        @JavascriptInterface fun setShuffle(on: Boolean) = ui { shuffleModeEnabled = on }
+        @JavascriptInterface fun setShuffle(on: Boolean) {
+            main.post { PlaybackService.instance?.setShuffle(on) ?: controller?.let { it.shuffleModeEnabled = on } }
+        }
 
         /** Лайк: трек попадает в плейлист «Нравится» (новые сверху) или убирается из него. */
         @JavascriptInterface fun toggleLike(trackId: String) {

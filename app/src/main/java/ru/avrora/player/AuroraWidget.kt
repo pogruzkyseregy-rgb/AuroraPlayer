@@ -21,10 +21,7 @@ class AuroraWidget : AppWidgetProvider() {
     // Media3 пропускает только Play, а остальные команды отбрасывает.
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            ACTION_NEXT -> PlaybackService.instance?.exo?.run {
-                if (hasNextMediaItem()) seekToNextMediaItem() else if (mediaItemCount > 0) seekToDefaultPosition(0)
-                play()
-            }
+            ACTION_NEXT -> PlaybackService.instance?.skipNext()
             ACTION_PREV -> PlaybackService.instance?.exo?.run {
                 seekToPrevious()
                 play()
